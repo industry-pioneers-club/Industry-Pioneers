@@ -20,7 +20,7 @@ const EV=[
 {t:'زيارة ميدانية لمصنع الأسمنت',c:'زيارات',d:'22 نوفمبر 2026',h:'8:00 ص',l:'ينبع الصناعية',i:'event-2.png',u:1,x:'رحلة لمعايشة مواقع العمل والتعرف على مراحل الإنتاج.'},
 {t:'هاكثون',c:'ملتقيات',d:'13 2026 مايو',h:'9:00 ص',l:'عمادة شؤون الطلاب',i:'event-3.png',u:1,x:'مبادرة تهدف إلى بناء جسر فعال بين الطلاب والقطاعات الصناعية'},
 {t:'ملتقى الابتكار الصناعي',c:'ملتقيات',d:'13 مايو 2026',h:'9:00 ص',l:'عمادة شؤون الطلاب',i:'event-4.png',u:0,x:'مبادرة تهدف إلى بناء جسر فعال بين الطلاب والقطاعات الصناعية'},
-{t:'ورشة السلامة المهنية',c:'ورش',d:'2 أبريل 2026',h:'11:00 ص',l:'مبنى الورش',i:'event-5.png',u:0,x:'أساسيات السلامة في بيئات العمل الصناعية.'},
+{t:'التصنيع الذكي',c:'لقاء',d:'26 فبراير 2026',h:'5:00 م',l:'حي المغيسلة',i:'event-5.png',u:0,x:'خلق بيئة تفاعلية  بين العامة وتثقيفهم في المجال الصناعي والتعدين'},
 {t:'جولة داخل المصانع السعودية',c:'زيارات',d:'16 ابريل 2026',h:'9:00 ص',l:'مقر شركة الزجاج العربية المتحدة(ينبع)',i:'event-6.png',u:0,x:'زيارة ميدانية بهدف تعريف الطلاب ببيئة العمل الصناعية.'}];
 const evBox=$('#upcoming');
 if(evBox){let cat='الكل';const q=$('#q');
@@ -46,3 +46,561 @@ setTimeout(hideBroken,300);
 /* LOGIN (mock only — no real authentication) */
 const lf=$('#loginForm');
 if(lf)lf.onsubmit=e=>{e.preventDefault();if(!lf.id.value.trim()||!lf.pw.value)return toast('الرجاء تعبئة جميع الحقول');toast('تم تسجيل الدخول بنجاح');setTimeout(()=>location.href='index.html',1200)};
+
+
+/* =========================================
+   LEADER DASHBOARD
+========================================= */
+
+const leaderPage = page === 'leader-dashboard.html';
+
+if (leaderPage) {
+
+    /* -------------------------
+       MOCK TASKS
+    ------------------------- */
+
+    let leaderTasks = [
+        {
+            event:'ملتقى الابتكار الصناعي',
+            task:'تنظيم التسجيل',
+            member:'سارة أحمد',
+            points:20,
+            deadline:'10 مايو 2026',
+            status:'قيد التنفيذ'
+        },
+        {
+            event:'التصنيع الذكي',
+            task:'إعداد المحتوى',
+            member:'محمد خالد',
+            points:30,
+            deadline:'20 فبراير 2026',
+            status:'مكتملة'
+        },
+        {
+            event:'جولة داخل المصانع السعودية',
+            task:'كتابة التقرير',
+            member:'نورة علي',
+            points:25,
+            deadline:'20 أبريل 2026',
+            status:'قيد التنفيذ'
+        }
+    ];
+
+    let approvals = [
+        {
+            member:'محمد خالد',
+            title:'مقال: الذكاء الاصطناعي في الصناعة',
+            date:'14 سبتمبر 2026',
+            points:30,
+            status:'قيد المراجعة'
+        },
+        {
+            member:'سارة أحمد',
+            title:'مهمة تنظيم ملتقى الابتكار',
+            date:'10 مايو 2026',
+            points:20,
+            status:'قيد المراجعة'
+        }
+    ];
+
+    let sponsors = [
+        {
+            name:'شركة صناعات',
+            image:'Image/club-logo.png'
+        },
+        {
+            name:'راعي النادي',
+            image:'Image/taibah-logo.png'
+        }
+    ];
+
+
+    /* -------------------------
+       TASKS
+    ------------------------- */
+
+    const leaderTasksBox = $('#leaderTasks');
+
+    const drawLeaderTasks = () => {
+
+        if(!leaderTasksBox) return;
+
+        leaderTasksBox.innerHTML = leaderTasks.map((t,i)=>`
+
+            <tr>
+
+                <td>${t.event}</td>
+
+                <td>${t.task}</td>
+
+                <td>${t.member}</td>
+
+                <td><b>${t.points}</b></td>
+
+                <td>${t.deadline}</td>
+
+                <td>
+                    <span class="dashboard-status ${
+                        t.status === 'مكتملة'
+                        ? 'status-approved'
+                        : 'status-pending'
+                    }">
+                        ${t.status}
+                    </span>
+                </td>
+
+                <td>
+
+                    <div class="dashboard-actions">
+
+                        <button
+                            class="dashboard-action"
+                            data-edit-task="${i}">
+                            تعديل
+                        </button>
+
+                        <button
+                            class="dashboard-action reject"
+                            data-delete-task="${i}">
+                            حذف
+                        </button>
+
+                    </div>
+
+                </td>
+
+            </tr>
+
+        `).join('');
+    };
+
+
+    drawLeaderTasks();
+
+
+    /* -------------------------
+       ADD EVENT
+    ------------------------- */
+
+    $('#addEventBtn')?.addEventListener('click',()=>{
+
+        modal(`
+
+            <h3>إنشاء فعالية جديدة</h3>
+
+            <div class="dashboard-form">
+
+                <label>اسم الفعالية</label>
+                <input id="newEventName" placeholder="اسم الفعالية">
+
+                <label>وصف الفعالية</label>
+                <textarea id="newEventDescription"
+                    placeholder="وصف الفعالية"></textarea>
+
+                <div class="form-row">
+
+                    <div>
+                        <label>التاريخ</label>
+                        <input id="newEventDate" type="date">
+                    </div>
+
+                    <div>
+                        <label>الوقت</label>
+                        <input id="newEventTime" type="time">
+                    </div>
+
+                </div>
+
+                <label>المكان</label>
+                <input id="newEventLocation" placeholder="مكان الفعالية">
+
+                <label>متطلبات الفعالية</label>
+                <textarea id="newEventRequirements"
+                    placeholder="متطلبات الفعالية"></textarea>
+
+                <button class="btn btn-o" id="saveNewEvent">
+                    حفظ الفعالية
+                </button>
+
+            </div>
+        `);
+
+
+        $('#saveNewEvent').onclick=()=>{
+
+            const name=$('#newEventName').value.trim();
+
+            if(!name){
+                return toast('يرجى إدخال اسم الفعالية');
+            }
+
+            closeModal();
+
+            toast('تم إنشاء الفعالية بنجاح');
+        };
+
+    });
+
+
+    /* -------------------------
+       EDIT / DELETE TASK
+    ------------------------- */
+
+    document.addEventListener('click',e=>{
+
+        const edit=e.target.closest('[data-edit-task]');
+
+        if(edit){
+
+            const i=Number(edit.dataset.editTask);
+            const task=leaderTasks[i];
+
+            modal(`
+
+                <h3>تعديل المهمة</h3>
+
+                <div class="dashboard-form">
+
+                    <label>اسم المهمة</label>
+                    <input id="editTaskName" value="${task.task}">
+
+                    <label>العضو</label>
+                    <input id="editTaskMember" value="${task.member}">
+
+                    <label>النقاط</label>
+                    <input id="editTaskPoints"
+                        type="number"
+                        value="${task.points}">
+
+                    <label>موعد التسليم</label>
+                    <input id="editTaskDeadline"
+                        value="${task.deadline}">
+
+                    <button class="btn btn-o" id="saveTaskEdit">
+                        حفظ التعديل
+                    </button>
+
+                </div>
+            `);
+
+
+            $('#saveTaskEdit').onclick=()=>{
+
+                task.task=$('#editTaskName').value;
+                task.member=$('#editTaskMember').value;
+                task.points=Number($('#editTaskPoints').value);
+                task.deadline=$('#editTaskDeadline').value;
+
+                drawLeaderTasks();
+
+                closeModal();
+
+                toast('تم تعديل المهمة');
+            };
+
+        }
+
+
+        const del=e.target.closest('[data-delete-task]');
+
+        if(del){
+
+            const i=Number(del.dataset.deleteTask);
+
+            leaderTasks.splice(i,1);
+
+            drawLeaderTasks();
+
+            toast('تم حذف المهمة');
+        }
+
+    });
+
+
+    /* -------------------------
+       APPROVALS
+    ------------------------- */
+
+    const approvalList=$('#approvalList');
+
+    const drawApprovals=()=>{
+
+        if(!approvalList) return;
+
+        approvalList.innerHTML=approvals.map((a,i)=>`
+
+            <tr>
+
+                <td>${a.member}</td>
+
+                <td>${a.title}</td>
+
+                <td>${a.date}</td>
+
+                <td><b>${a.points}</b></td>
+
+                <td>
+
+                    <span class="dashboard-status ${
+                        a.status==='معتمد'
+                        ? 'status-approved'
+                        : a.status==='مرفوض'
+                        ? 'status-rejected'
+                        : 'status-pending'
+                    }">
+
+                        ${a.status}
+
+                    </span>
+
+                </td>
+
+                <td>
+
+                    <div class="dashboard-actions">
+
+                        <button
+                            class="dashboard-action"
+                            data-view-approval="${i}">
+                            عرض
+                        </button>
+
+                        ${
+                            a.status==='قيد المراجعة'
+                            ? `
+                            <button
+                                class="dashboard-action approve"
+                                data-approve="${i}">
+                                اعتماد
+                            </button>
+
+                            <button
+                                class="dashboard-action reject"
+                                data-reject="${i}">
+                                رفض
+                            </button>
+                            `
+                            :''
+                        }
+
+                    </div>
+
+                </td>
+
+            </tr>
+
+        `).join('');
+    };
+
+
+    drawApprovals();
+
+
+    document.addEventListener('click',e=>{
+
+        const approve=e.target.closest('[data-approve]');
+
+        if(approve){
+
+            const i=Number(approve.dataset.approve);
+
+            approvals[i].status='معتمد';
+
+            drawApprovals();
+
+            toast(`تم اعتماد المهمة وإضافة ${approvals[i].points} نقطة`);
+        }
+
+
+        const reject=e.target.closest('[data-reject]');
+
+        if(reject){
+
+            const i=Number(reject.dataset.reject);
+
+            approvals[i].status='مرفوض';
+
+            drawApprovals();
+
+            toast('تم رفض المشاركة');
+        }
+
+
+        const view=e.target.closest('[data-view-approval]');
+
+        if(view){
+
+            const a=approvals[Number(view.dataset.viewApproval)];
+
+            modal(`
+
+                <h3>${a.title}</h3>
+
+                <p style="margin-top:12px">
+                    <b>العضو:</b> ${a.member}
+                </p>
+
+                <p style="margin-top:8px">
+                    <b>التاريخ:</b> ${a.date}
+                </p>
+
+                <p style="margin-top:8px">
+                    <b>النقاط:</b> ${a.points}
+                </p>
+
+            `);
+        }
+
+    });
+
+
+    /* -------------------------
+       SPONSORS
+    ------------------------- */
+
+    const sponsorList=$('#sponsorList');
+
+    const drawSponsors=()=>{
+
+        if(!sponsorList) return;
+
+        sponsorList.innerHTML=sponsors.map((s,i)=>`
+
+            <div class="sponsor-dashboard-card">
+
+                <button
+                    class="sponsor-delete"
+                    data-delete-sponsor="${i}">
+                    ×
+                </button>
+
+                <img src="${s.image}" alt="${s.name}">
+
+                <h4>${s.name}</h4>
+
+            </div>
+
+        `).join('');
+    };
+
+
+    drawSponsors();
+
+
+    $('#addSponsorBtn')?.addEventListener('click',()=>{
+
+        modal(`
+
+            <h3>إضافة راعٍ</h3>
+
+            <div class="dashboard-form">
+
+                <label>اسم الراعي</label>
+
+                <input
+                    id="sponsorName"
+                    placeholder="اسم الراعي">
+
+                <label>مسار شعار الراعي</label>
+
+                <input
+                    id="sponsorImage"
+                    placeholder="Image/sponsor.png">
+
+                <button class="btn btn-o" id="saveSponsor">
+                    إضافة الراعي
+                </button>
+
+            </div>
+
+        `);
+
+
+        $('#saveSponsor').onclick=()=>{
+
+            const name=$('#sponsorName').value.trim();
+            const image=$('#sponsorImage').value.trim();
+
+            if(!name || !image){
+                return toast('يرجى تعبئة جميع الحقول');
+            }
+
+            sponsors.push({
+                name,
+                image
+            });
+
+            drawSponsors();
+
+            closeModal();
+
+            toast('تمت إضافة الراعي');
+        };
+
+    });
+
+
+    document.addEventListener('click',e=>{
+
+        const del=e.target.closest('[data-delete-sponsor]');
+
+        if(!del) return;
+
+        const i=Number(del.dataset.deleteSponsor);
+
+        sponsors.splice(i,1);
+
+        drawSponsors();
+
+        toast('تم حذف الراعي');
+
+    });
+
+}
+
+
+/* =========================================
+   SUPERVISOR DASHBOARD
+========================================= */
+
+const supervisorPage = page === 'supervisor-dashboard.html';
+
+if(supervisorPage){
+
+    const exportBtn=$('#exportReportBtn');
+
+    exportBtn?.addEventListener('click',()=>{
+
+        const report=`
+
+تقرير أداء نادي رواد الصناعة
+
+إجمالي الفعاليات: 12
+الفعاليات المكتملة: 8
+الفعاليات قيد التنفيذ: 4
+نسبة الإنجاز: 67%
+
+تم إنشاء التقرير من لوحة تحكم المشرف الأكاديمي.
+        `.trim();
+
+        const blob=new Blob(
+            [report],
+            {type:'text/plain;charset=utf-8'}
+        );
+
+        const url=URL.createObjectURL(blob);
+
+        const a=document.createElement('a');
+
+        a.href=url;
+        a.download='industry-pioneers-report.txt';
+
+        a.click();
+
+        URL.revokeObjectURL(url);
+
+        toast('تم تحميل التقرير');
+    });
+
+}

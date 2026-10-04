@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>لوحة تحكم القائد | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/style.css">
+<script src="js/main.js" defer></script>
+
+</head>
+
+<body>
+
+<section class="banner">
+    <h1>لوحة تحكم القائد</h1>
+    <span class="sub">إدارة الفعاليات والمهام والاعتمادات والرعاة</span>
+</section>
+
+<section class="sec leader-dashboard">
+<div class="wrap">
+
+    <!-- إدارة الفعاليات والمهام -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة الفعاليات والمهام</h2>
+                <p class="dashboard-description">
+                    إنشاء الفعاليات وتحديد متطلباتها وتوزيع المهام على أعضاء النادي.
+                </p>
+            </div>
+
+            <button class="btn btn-o" id="addEventBtn">
+                + إنشاء فعالية جديدة
+            </button>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الفعالية</th>
+                            <th>المهمة</th>
+                            <th>العضو</th>
+                            <th>النقاط</th>
+                            <th>موعد التسليم</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="leaderTasks">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- الاعتمادات -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الاعتمادات</h2>
+                <p class="dashboard-description">
+                    مراجعة المهام والمقالات المرفوعة من أعضاء النادي واعتماد النقاط.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العضو</th>
+                            <th>المهمة / المقال</th>
+                            <th>التاريخ</th>
+                            <th>النقاط</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="approvalList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- إدارة الرعاة -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة الرعاة</h2>
+                <p class="dashboard-description">
+                    إضافة أو حذف شعارات الرعاة المشاركين في دعم النادي.
+                </p>
+            </div>
+
+            <button class="btn btn-o" id="addSponsorBtn">
+                + إضافة راعٍ
+            </button>
+        </div>
+
+        <div class="sponsor-dashboard-grid" id="sponsorList">
+        </div>
+
+    </div>
+
+</div>
+</section>
+
+</body>
+</html>

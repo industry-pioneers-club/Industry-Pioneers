@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>لوحة تحكم المشرف الأكاديمي | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="css/style.css">
+<script src="js/main.js" defer></script>
+</head>
+
+<body>
+
+<section class="banner">
+    <h1>لوحة تحكم المشرف الأكاديمي</h1>
+    <span class="sub">متابعة أداء النادي ونسبة إنجاز الفعاليات</span>
+</section>
+
+
+<section class="sec supervisor-dashboard">
+<div class="wrap">
+
+    <!-- الإحصائيات -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الإحصائيات</h2>
+                <p class="dashboard-description">
+                    نظرة عامة على أداء النادي ونسبة إنجاز الفعاليات.
+                </p>
+            </div>
+        </div>
+
+
+        <div class="analytics-cards">
+
+            <div class="analytics-card">
+                <span>إجمالي الفعاليات</span>
+                <strong>12</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>الفعاليات المكتملة</span>
+                <strong>8</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>الفعاليات قيد التنفيذ</span>
+                <strong>4</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>نسبة الإنجاز</span>
+                <strong>67%</strong>
+            </div>
+
+        </div>
+
+
+        <div class="analytics-grid">
+
+            <div class="dashboard-card chart-card">
+                <h3>أداء الفعاليات</h3>
+
+                <div class="chart-bars">
+
+                    <div class="chart-item">
+                        <span>ورش</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" style="width:80%"></div>
+                        </div>
+                        <b>80%</b>
+                    </div>
+
+                    <div class="chart-item">
+                        <span>زيارات</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" style="width:65%"></div>
+                        </div>
+                        <b>65%</b>
+                    </div>
+
+                    <div class="chart-item">
+                        <span>ملتقيات</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" style="width:75%"></div>
+                        </div>
+                        <b>75%</b>
+                    </div>
+
+                    <div class="chart-item">
+                        <span>لقاءات</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" style="width:55%"></div>
+                        </div>
+                        <b>55%</b>
+                    </div>
+
+                </div>
+            </div>
+
+
+            <div class="dashboard-card chart-card">
+                <h3>نسبة إنجاز الفعاليات</h3>
+
+                <div class="progress-chart">
+
+                    <div class="progress-circle">
+                        <span>67%</span>
+                    </div>
+
+                    <p>
+                        تم إنجاز 8 من أصل 12 فعالية.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- تصدير التقارير -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تصدير التقارير</h2>
+                <p class="dashboard-description">
+                    تحميل تقارير مختصرة عن أداء النادي وإنجاز الفعاليات.
+                </p>
+            </div>
+        </div>
+
+
+        <div class="report-card">
+
+            <div>
+                <span class="report-icon">▣</span>
+
+                <div>
+                    <h3>تقرير أداء النادي</h3>
+                    <p>
+                        تقرير يتضمن إحصائيات أداء النادي ونسبة إنجاز الفعاليات.
+                    </p>
+                </div>
+            </div>
+
+            <button class="btn btn-o" id="exportReportBtn">
+                تحميل التقرير
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+</section>
+
+</body>
+</html>
