@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الرئيسية | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+<section class="hero"><div class="hc">
+<h1><span>نُمكّن الكفاءات...</span><span>نبتكر الحلول...</span><span class="g">ونقود مستقبل الصناعة</span></h1>
+<p>{{ club_identity.description if club_identity else 'نادي رواد الصناعة منصة طلابية في جامعة طيبة تجمع مختلف التخصصات لتعريفهم بواقع القطاع الصناعي، من خلال رحلة متكاملة تبدأ باكتشاف الفرص والمهارات، مرورًا بمعايشة مواقع العمل وصولًا إلى تقديم حلول ابتكارية ومشاريع تطبيقية.' }}</p>
+<div class="acts"><a class="btn btn-p" href="{{ url_for('events_page') }}"><span>استكشف فعالياتنا</span><span>←</span></a>{% if current_user.is_authenticated %}<a class="btn btn-s" href="{{ url_for('dashboard') }}">لوحتي</a>{% else %}<a class="btn btn-s" href="{{ url_for('login_form') }}">انضم إلى النادي</a>{% endif %}</div>
+</div></section>
+<section class="sec alt c"><div class="wrap"><h2 class="st">{{ club_identity.name if club_identity else 'نادي رواد الصناعة' }}</h2><div class="two" style="text-align:right">
+{% if club_identity %}
+<div class="card"><h3>رؤية النادي</h3><p>{{ club_identity.vision }}</p></div>
+<div class="card"><h3>رسالة النادي</h3><p>{{ club_identity.mission }}</p></div>
+{% else %}
+<p class="empty">لم تُضف هوية النادي بعد.</p>
+{% endif %}
+</div></div></section>
+<section class="sec"><div class="wrap">
+<h2 class="st">الفعاليات</h2>
+<div class="grid">
+{% for event in events %}
+<article class="ev"><div class="ph">{% set src = event.image_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ event.title }}">{% endif %}</div><div class="eb"><h3>{{ event.title }}</h3><ul><li><b>التاريخ:</b> {{ event.date|shortdate }}</li></ul></div></article>
+{% else %}
+<p class="empty">لا توجد فعاليات عامة حالياً.</p>
+{% endfor %}
+</div>
+</div></section>
+<section class="sec"><div class="wrap">
+<h2 class="st">جريدة الصناعة</h2>
+<div class="grid grid2">
+{% for article in articles[:3] %}
+<article class="ev"><div class="ph">{% set src = article.image_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ article.title }}">{% endif %}</div><div class="eb"><span class="tag">{{ article.author_sector }}</span><h3>{{ article.title }}</h3><ul><li><b>الكاتب:</b> {{ article.author_name }}</li><li><b>التاريخ:</b> {{ article.date_published|shortdate }}</li></ul><div><button class="like" type="button" data-article-id="{{ article.id }}">♡ <span>{{ article.likes_count }}</span></button></div></div></article>
+{% else %}
+<p class="empty">لا توجد مقالات حالياً.</p>
+{% endfor %}
+</div>
+</div></section>
+<section class="sec"><div class="wrap">
+<h2 class="st">الرعاة</h2>
+<div class="logos">
+{% for sponsor in sponsors %}
+<div class="lg">{% set src = sponsor.logo_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}<p>{{ sponsor.name }} — {{ sponsor.tier }}</p></div>
+{% else %}
+<p class="empty">لا يوجد رعاة حالياً.</p>
+{% endfor %}
+</div>
+</div></section>
+</body>
+</html>
