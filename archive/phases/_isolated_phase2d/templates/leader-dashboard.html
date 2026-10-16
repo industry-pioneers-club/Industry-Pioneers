@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>لوحة تحكم القائد | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+</head>
+
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>لوحة تحكم القائد</h1>
+    <span class="sub">إدارة الفعاليات والمهام والاعتمادات والرعاة</span>
+    <a class="btn btn-o" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+</section>
+
+<div style="max-width:1200px;margin:16px auto 0;padding:0 20px">
+    <div style="background:#fff8e5;border-right:4px solid #f39c12;color:#805d00;padding:12px 16px;border-radius:8px">
+        ملاحظة: اعتماد المقالات لا يزال محلياً. إدارة المهام والرعاة أصبحت متصلة بقاعدة البيانات.
+    </div>
+</div>
+
+<script id="leader-dashboard-data" type="application/json">
+{
+    "events": [{% for e in events %}{"id": {{ e.id }}, "title": {{ e.title|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}]
+}
+</script>
+
+<section class="sec leader-dashboard">
+<div class="wrap">
+
+    <!-- إدارة الفعاليات -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الفعاليات</h2>
+                <p class="dashboard-description">
+                    إنشاء فعاليات جديدة وإدارة الفعاليات الحالية.
+                </p>
+            </div>
+            <button class="btn btn-o" id="addEventBtn">+ إنشاء فعالية جديدة</button>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العنوان</th>
+                            <th>التاريخ</th>
+                            <th>الوقت</th>
+                            <th>الرؤية</th>
+                            <th>الشعار</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventList">
+                        {% for ev in events %}
+                        <tr data-event-id="{{ ev.id }}" data-event-date="{{ ev.date.isoformat() }}">
+                            <td>{{ ev.title }}</td>
+                            <td data-event-date-cell>{{ ev.date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ ev.date.strftime('%H:%M') }}</td>
+                            <td>
+                                {% if ev.is_public %}
+                                <span class="dashboard-status status-approved">عامة</span>
+                                {% else %}
+                                <span class="dashboard-status status-pending">خاصة</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ev.image_path or '—' }}</td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action reject" data-delete-event="{{ ev.id }}">حذف</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" style="text-align:center;color:#888">لا توجد فعاليات حالياً.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- إدارة المهام -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة المهام</h2>
+                <p class="dashboard-description">
+                    توزيع المهام على أعضاء النادي ومتابعة إنجازها.
+                </p>
+            </div>
+
+            <div class="dashboard-heading-actions">
+                <button class="btn btn-o" id="addTaskBtn">+ إضافة مهمة</button>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الفعالية</th>
+                            <th>المهمة</th>
+                            <th>العضو</th>
+                            <th>النقاط</th>
+                            <th>موعد التسليم</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="leaderTasks">
+                        {% for t in tasks %}
+                        <tr
+                            data-task-id="{{ t.id }}"
+                            data-task-title="{{ t.title }}"
+                            data-task-points="{{ t.points }}"
+                            data-task-deadline="{{ t.deadline.isoformat() if t.deadline else '' }}"
+                            data-task-status="{{ t.status }}"
+                            data-task-event-id="{{ t.event_id or '' }}"
+                            data-task-member-id="{{ t.assigned_user_id or '' }}">
+                            <td>{{ t.event.title if t.event else '—' }}</td>
+                            <td>{{ t.title }}</td>
+                            <td>{{ t.assigned_user.name if t.assigned_user else '—' }}</td>
+                            <td><b>{{ t.points }}</b></td>
+                            <td data-deadline-cell>{{ t.deadline.isoformat() if t.deadline else '—' }}</td>
+                            <td>
+                                <span class="dashboard-status {{ 'status-approved' if t.status == 'مكتملة' else 'status-pending' }}">{{ t.status }}</span>
+                            </td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action" data-edit-task="{{ t.id }}">تعديل</button>
+                                    <button class="dashboard-action reject" data-delete-task="{{ t.id }}">حذف</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="7" style="text-align:center;color:#888">لا توجد مهام حالياً.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- اعتماد مهام الأعضاء -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">اعتماد مهام الأعضاء</h2>
+                <p class="dashboard-description">
+                    المهام التي أكملها الأعضاء وتنتظر اعتمادك. تُمنح النقاط فور الاعتماد.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العضو</th>
+                            <th>المهمة</th>
+                            <th>الفعالية</th>
+                            <th>النقاط</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingApprovalList">
+                        {% for t in pending_approval %}
+                        <tr data-pending-task-id="{{ t.id }}">
+                            <td>{{ t.assigned_user.name if t.assigned_user else '—' }}</td>
+                            <td>{{ t.title }}</td>
+                            <td>{{ t.event.title if t.event else '—' }}</td>
+                            <td><b>{{ t.points }}</b></td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action approve" data-approve-task="{{ t.id }}">
+                                        ✓ اعتماد
+                                    </button>
+                                    <button class="dashboard-action reject" data-reject-task="{{ t.id }}">
+                                        ✗ رفض
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" style="text-align:center;color:#888">لا توجد مهام تنتظر الاعتماد.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- الاعتمادات (المقالات) -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">اعتماد المقالات</h2>
+                <p class="dashboard-description">
+                    مراجعة المقالات المرفوعة من أعضاء النادي واعتماد النقاط.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العضو</th>
+                            <th>المهمة / المقال</th>
+                            <th>التاريخ</th>
+                            <th>النقاط</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="approvalList">
+                        {% for article in articles %}
+                        <tr
+                            data-article-id="{{ article.id }}"
+                            data-article-title="{{ article.title }}"
+                            data-article-author="{{ article.author_name }}"
+                            data-article-date="{{ article.date_published.strftime('%Y-%m-%d') }}">
+                            <td>{{ article.author_name }}</td>
+                            <td>{{ article.title }}</td>
+                            <td>{{ article.date_published.strftime('%Y-%m-%d') }}</td>
+                            <td>—</td>
+                            <td data-approval-status>
+                                <span class="dashboard-status status-pending">قيد المراجعة</span>
+                            </td>
+                            <td data-approval-actions></td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" style="text-align:center;color:#888">لا توجد مقالات حتى الآن.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- إدارة الرعاة -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة الرعاة</h2>
+                <p class="dashboard-description">
+                    إضافة أو حذف شعارات الرعاة المشاركين في دعم النادي.
+                </p>
+            </div>
+
+            <button class="btn btn-o" id="addSponsorBtn">
+                + إضافة راعٍ
+            </button>
+        </div>
+
+        <div class="sponsor-dashboard-grid" id="sponsorList">
+            {% for s in sponsors %}
+            <div class="sponsor-dashboard-card" data-sponsor-id="{{ s.id }}">
+                <button class="sponsor-delete" data-delete-sponsor="{{ s.id }}" aria-label="حذف">×</button>
+                {% set src = s.logo_path|static_image %}
+                {% if src %}<img src="{{ src }}" alt="{{ s.name }}">{% endif %}
+                <h4>{{ s.name }}</h4>
+                {% if s.tier %}<small style="color:#888">{{ s.tier }}</small>{% endif %}
+            </div>
+            {% else %}
+            <p class="empty">لا يوجد رعاة حالياً.</p>
+            {% endfor %}
+        </div>
+
+    </div>
+
+</div>
+</section>
+
+</body>
+</html>

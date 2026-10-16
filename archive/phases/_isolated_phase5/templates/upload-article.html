@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>رفع مقال | جريدة الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    <style>
+        .ua-container { max-width: 760px; margin: 40px auto; padding: 0 20px; }
+        .ua-heading {
+            background: #1b365d;
+            color: #fff;
+            padding: 26px 28px;
+            border-radius: 14px;
+        }
+        .ua-heading h1 { margin: 0 0 6px; font-size: 24px; }
+        .ua-heading p { margin: 0; color: #eee; }
+        .ua-form-card {
+            background: #fff;
+            padding: 28px;
+            margin-top: 22px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+        .ua-form-card label { display: block; font-weight: 700; margin: 18px 0 8px; color: #1b365d; }
+        .ua-form-card input,
+        .ua-form-card select,
+        .ua-form-card textarea {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 16px;
+        }
+        .ua-form-card textarea { min-height: 160px; resize: vertical; }
+        .ua-form-card input:focus,
+        .ua-form-card select:focus,
+        .ua-form-card textarea:focus {
+            outline: 2px solid #f39c12;
+            border-color: transparent;
+        }
+        .ua-actions { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
+        .ua-btn {
+            display: inline-block;
+            border: 0;
+            background: #1b365d;
+            color: #fff;
+            padding: 12px 22px;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .ua-btn:hover { background: #f39c12; }
+        .ua-btn.secondary { background: transparent; color: #1b365d; border: 2px solid #1b365d; padding: 10px 20px; }
+        .ua-btn.secondary:hover { background: #1b365d; color: #fff; }
+        .ua-note { color: #666; line-height: 1.8; font-size: 14px; }
+        .ua-field-error { color: #c0392b; font-size: 13px; margin-top: 6px; display: none; }
+        .ua-field-error.show { display: block; }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<main class="ua-container">
+    <div class="ua-heading">
+        <h1>رفع مقال لجريدة الصناعة</h1>
+        <p>شارك معرفتك وأفكارك في مجالات الصناعة والابتكار.</p>
+    </div>
+
+    <div class="ua-form-card">
+        <form id="uploadArticleForm" method="POST" action="{{ url_for('upload_article') }}" novalidate>
+            <label for="title">عنوان المقال</label>
+            <input id="title" name="title" type="text" maxlength="200" placeholder="أدخل عنوان المقال">
+            <div class="ua-field-error" data-error-for="title">يرجى إدخال عنوان المقال (أقل من 200 حرف).</div>
+
+            <label for="category">التصنيف</label>
+            <select id="category" name="category">
+                <option value="">اختر التصنيف</option>
+                <option value="الصناعة">الصناعة</option>
+                <option value="الابتكار">الابتكار</option>
+                <option value="التقنية">التقنية</option>
+                <option value="ريادة الأعمال">ريادة الأعمال</option>
+                <option value="الاستدامة">الاستدامة</option>
+            </select>
+            <div class="ua-field-error" data-error-for="category">يرجى اختيار تصنيف المقال.</div>
+
+            <p class="ua-note">سيُحفظ المقال للمراجعة. يحفظ النموذج الحالي العنوان والتصنيف فقط.</p>
+
+            <div class="ua-actions">
+                <button type="submit" class="ua-btn">إرسال المقال</button>
+                <a href="{{ url_for('member_profile') }}" class="ua-btn secondary">العودة إلى لوحة العضو</a>
+            </div>
+        </form>
+    </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>جريدة الصناعة | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+<section class="banner"><h1>جريدة الصناعة</h1><span class="sub">مقالات ورؤى من قلب القطاع الصناعي</span></section><section class="sec"><div class="wrap"><div class="grid grid2" id="articles">
+{% for article in articles %}
+<article class="ev"><div class="ph">{% set src = article.image_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ article.title }}">{% endif %}</div><div class="eb"><span class="tag">{{ article.author_sector }}</span><h3>{{ article.title }}</h3><ul><li><b>الكاتب:</b> {{ article.author_name }}</li><li><b>التاريخ:</b> {{ article.date_published|shortdate }}</li></ul><div><button class="like" type="button" data-article-id="{{ article.id }}">♡ <span>{{ article.likes_count }}</span></button></div></div></article>
+{% else %}
+<p class="empty">لا توجد مقالات حالياً.</p>
+{% endfor %}
+</div></div></section>
+</body>
+</html>

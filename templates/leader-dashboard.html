@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>لوحة تحكم القائد | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+</head>
+
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>لوحة تحكم القائد</h1>
+    <span class="sub">إدارة الفعاليات والمهام والاعتمادات والرعاة</span>
+</section>
+
+<div style="max-width:1200px;margin:16px auto 0;padding:0 20px">
+    <div style="background:#d4edda;border-right:4px solid #27ae60;color:#155724;padding:12px 16px;border-radius:8px">
+        جميع ميزات إدارة المهام والمقالات والرعاة وطلبات الانضمام وتسجيلات الفعاليات مربوطة بقاعدة البيانات.
+    </div>
+    <!-- شريط الإشعارات -->
+    <div id="notifBar" class="notif-bar" hidden>
+        <div class="notif-head">
+            <div class="notif-head-text">
+                <strong class="notif-title">الإشعارات</strong>
+                <span id="notifCount" class="notif-count">0</span>
+                <span class="notif-sub">— مهام جديدة بانتظار اعتمادك</span>
+            </div>
+            <button type="button" id="notifMarkAll" class="notif-mark-all">تحديد الكل كمقروء</button>
+        </div>
+        <ul id="notifList" class="notif-list"></ul>
+    </div>
+</div>
+
+<style>
+/* ---- Event per-task progress bar in events table ---- */
+.ev-progress{display:flex;align-items:center;gap:8px}
+.ev-progress .track{background:#eef2f6;border-radius:999px;height:7px;flex:1;overflow:hidden;min-width:80px}
+.ev-progress .fill{display:block;height:100%;background:#f39c12;width:0}
+.ev-progress-label{min-width:72px;text-align:left}
+
+/* ===== Wide-modal variant =====
+   REAL ROOT CAUSE discovered via headless-browser measurement:
+   style.css lines 1147-1171 contain:
+       #modal { display: none; align-items: flex-start; justify-content: center;
+                overflow-y: auto; padding: 20px 12px; }
+       #modal.show { display: flex; }           ← wins over .modal.show (grid)
+       #modal #box { width: min(500px, 100%);   ← caps box at 500px
+                     max-height: none; margin: auto 0;
+                     padding: 24px; overflow: visible; flex-shrink: 0; }
+   The ID selectors (specificity 1,0,0 and 2,0,0) BEAT any class-only
+   selector regardless of the number of classes stacked. Every previous
+   `.modal.modal-wide .box.box--wide { width: 95vw }` was silently
+   losing the cascade battle to `#modal #box { width: min(500px, 100%) }`.
+
+   Fix: scope the wide-variant overrides to #modal.modal-wide and
+   #modal.modal-wide #box so they match or exceed the ID specificity. */
+
+#modal.modal-wide{
+    display: flex;             /* match the shared .show rule explicitly */
+    align-items: center;       /* vertical center the box */
+    justify-content: center;
+    padding: 2vh 2.5vw;        /* breathing room around box */
+    overflow: hidden;          /* box owns its own scrolling if any */
+    box-sizing: border-box;
+}
+#modal.modal-wide #box.box--wide{
+    /* Table measures ~790px; add .lb-modal-body padding (16px × 2 + 20px × 2 = 72px)
+       plus a little extra breathing room → ~900px. On narrow laptops/mobile,
+       shrink to 95vw. Result: box hugs the table + header + footer without
+       excessive empty horizontal space on the sides. */
+    width: min(900px, 95vw);
+    max-width: none;
+    height: auto;              /* fits content; no empty vertical space */
+    max-height: 96vh;
+    margin: 0;
+    padding: 0;                /* beats #modal #box's 24px padding */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 1;
+    box-sizing: border-box;
+}
+#modal.modal-wide #box.box--wide *{ box-sizing: border-box; }
+/* Body shrinks to fit rows; vertical scroll only if too many rows. */
+#modal.modal-wide #box.box--wide .lb-modal-body{
+    flex: 0 1 auto;
+    max-height: calc(96vh - 110px);
+}
+.lb-modal-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    padding:16px 20px;
+    border-bottom:1px solid #e4ebf1;
+    background:#f9fbfd;
+}
+.lb-modal-head h3{
+    margin:0 0 4px;
+    color:#1b365d;
+    font-size:16.5px;
+    font-weight:800;
+    line-height:1.5;
+}
+.lb-modal-head .lb-modal-sub{
+    color:#6a7f91;
+    font-size:13px;
+    margin:0;
+}
+.lb-modal-close{
+    background:transparent;
+    border:1px solid #d9e2eb;
+    color:#1b365d;
+    width:34px;
+    height:34px;
+    border-radius:50%;
+    font:700 18px/1 Tajawal,sans-serif;
+    cursor:pointer;
+    flex:0 0 auto;
+    transition:background .2s, color .2s, border-color .2s;
+}
+.lb-modal-close:hover{ background:#1b365d; color:#fff; border-color:#1b365d; }
+.lb-modal-body{
+    padding:16px 20px;
+    /* NOTE: CSS spec says if one of overflow-x/-y is 'visible' and the
+       other isn't, 'visible' computes to 'auto' — so declaring
+       'overflow-x: visible' alone would silently enable horizontal
+       scrolling. We instead use 'overflow: hidden auto' which gives
+       vertical scroll only and genuinely blocks horizontal scrolling.
+       The table is sized to fit (table-layout: fixed + percentage
+       widths summing to 100%) so no horizontal overflow should ever
+       occur in the first place. */
+    overflow: hidden auto;      /* x: hidden, y: auto */
+    flex:1 1 auto;
+    min-width:0;                /* flex-parent width clamp */
+}
+.lb-modal-foot{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:12px 20px;
+    border-top:1px solid #e4ebf1;
+    background:#f9fbfd;
+}
+.lb-modal-foot .btn{
+    height:auto;
+    width:auto;
+    padding:9px 22px;
+    border-radius:8px;
+    font-size:14px;
+}
+.lb-ltr{ direction:ltr; text-align:right; }
+.lb-empty{ text-align:center; color:#9fb3c4; padding:28px 20px; font-weight:700; }
+
+/* Edit-event form uses .dashboard-form which lives in style.css. */
+.lb-field-row{ display:flex; gap:12px; flex-wrap:wrap; }
+.lb-field-row > div{ flex:1 1 160px; min-width:0; }
+
+/* ===== Registrations table =====
+   Strategy to guarantee ALL 6 columns are visible at ONCE on desktop
+   WITHOUT horizontal scrolling:
+
+   1. table-layout: fixed → browser rigidly honors declared column
+      widths; a cell CANNOT push its column wider. Combined with
+      width:100% and percentages that sum to 100%, the table
+      physically cannot exceed its container.
+   2. Percentages distributed by actual content needs (email largest).
+   3. NO overflow:hidden on cells, NO text-overflow:ellipsis — if a
+      cell's content exceeds its column, it WRAPS onto a second line
+      inside the cell. No data is ever truncated.
+   4. Short-value columns (phone/date/type/#) use white-space:nowrap
+      AND have percentage widths large enough that the real data
+      (10-digit phone, 16-char date, 9-char chip) comfortably fits
+      on one line at every supported width.
+   5. Email uses white-space:normal + overflow-wrap:break-word so
+      long addresses wrap at word boundaries (never mid-character). */
+/* table-layout:auto so column widths fit their actual content.
+   width:auto so the table doesn't force every column to inflate just to
+   fill the modal — otherwise `tala@gmail.com` would sit inside a 478px
+   email cell with ~370px of empty space between it and the phone column.
+   The table-wrapper centers the table within the modal body, so any
+   leftover horizontal space becomes equal margins on left/right (clean
+   visual balance) instead of excessive gaps between columns. */
+.lb-reg-table{
+    width:auto;
+    max-width:100%;
+    margin:0 auto;              /* centered in modal body */
+    border-collapse:collapse;
+    table-layout:auto;
+}
+.lb-reg-table th,
+.lb-reg-table td{
+    padding:14px 16px;
+    text-align:right;
+    font-size:14px;
+    line-height:1.6;
+    border-bottom:1px solid #eef2f6;
+    vertical-align:middle;
+    /* NO overflow / NO text-overflow — content WRAPS if too wide. */
+}
+.lb-reg-table th{
+    background:#f9fbfd;
+    color:#1b365d;
+    font-weight:700;
+    position:sticky;
+    top:0;
+    z-index:1;
+    font-size:13px;
+    letter-spacing:.3px;
+    white-space:nowrap;
+    padding-top:12px;
+    padding-bottom:12px;
+}
+.lb-reg-table tbody tr:hover{ background:#fafcfd; }
+.lb-reg-table tbody tr:last-child td{ border-bottom:0; }
+
+/* Column sizing with table-layout:auto:
+   Each column shrinks to its content width (via white-space:nowrap on
+   fixed-length values); only the email column has an explicit min-width
+   that holds longer addresses comfortably. The result is a compact
+   table that doesn't inflate gaps between columns. */
+.lb-reg-table .c-num {
+    min-width:40px;
+    text-align:center;
+    color:#9fb3c4;
+    white-space:nowrap;
+}
+.lb-reg-table .c-name {
+    min-width:120px;
+    white-space:nowrap;
+}
+.lb-reg-table .c-email {
+    min-width:220px;            /* holds tala@gmail.com (~115px) + room */
+    max-width:360px;            /* longer addresses wrap at word boundary */
+    direction:ltr;
+    text-align:right;
+    overflow-wrap:break-word;
+    word-break:normal;
+    white-space:normal;
+}
+.lb-reg-table .c-phone {
+    min-width:130px;
+    white-space:nowrap;
+    direction:ltr;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+}
+.lb-reg-table .c-type {
+    min-width:110px;
+    white-space:nowrap;
+    text-align:center;
+}
+.lb-reg-table .c-date {
+    min-width:170px;
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+}
+
+.lb-chip{
+    display:inline-block;
+    padding:3px 10px;
+    border-radius:999px;
+    font-size:11.5px;
+    font-weight:700;
+    white-space:nowrap;
+}
+.lb-chip-ok{ background:#d4edda; color:#155724; }
+.lb-chip-pend{ background:#fff3cd; color:#805d00; }
+
+/* ===== Mobile: stacked rows (no horizontal scroll on narrow screens) ===== */
+@media (max-width:640px){
+    /* Mobile: tighter padding so the box uses nearly full viewport width.
+       ID selectors used to beat the shared #modal #box rule in style.css. */
+    #modal.modal-wide{ padding: 1vh 1vw; }
+    #modal.modal-wide #box.box--wide{ width: 98vw; max-height: 94vh; }
+    .lb-modal-head{ padding:12px 14px; }
+    .lb-modal-body{ padding:12px 10px; }
+    .lb-modal-foot{ padding:10px 14px; }
+
+    /* Convert the table into a stack of cards. Each <tr> becomes a card,
+       each <td> becomes a label-value row using data-label attributes. */
+    .lb-reg-table,
+    .lb-reg-table thead,
+    .lb-reg-table tbody,
+    .lb-reg-table tr,
+    .lb-reg-table td{
+        display:block;
+        width:100%;
+    }
+    .lb-reg-table thead{ display:none; }   /* header labels move into cells */
+    .lb-reg-table tr{
+        margin-bottom:12px;
+        padding:10px 12px;
+        border:1px solid #e4ebf1;
+        border-radius:10px;
+        background:#fff;
+    }
+    .lb-reg-table td{
+        padding:6px 0;
+        border-bottom:1px solid #f2f5f8;
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+    }
+    .lb-reg-table tr td:last-child{ border-bottom:0; }
+    .lb-reg-table td::before{
+        content:attr(data-label);
+        color:#6a7f91;
+        font-weight:700;
+        font-size:12px;
+        flex:0 0 auto;
+    }
+    .lb-reg-table .c-num{ display:none; }  /* row index is noise on mobile */
+    .lb-reg-table .c-name,
+    .lb-reg-table .c-email,
+    .lb-reg-table .c-phone,
+    .lb-reg-table .c-type,
+    .lb-reg-table .c-date{
+        width:auto;
+        min-width:0;           /* reset desktop pixel min-widths */
+        white-space:normal;    /* allow wrapping inside stacked card */
+    }
+    .lb-reg-table{ table-layout:auto; } /* reset: stacked cards need auto */
+    .lb-reg-table th, .lb-reg-table td{
+        padding:8px 0;
+        font-size:13.5px;
+    }
+    .lb-reg-table .lb-ltr{ text-align:left; }
+}
+
+/* ===== Medium screens (641–1024px): slightly tighter padding + font
+   so wide values still fit comfortably on smaller laptops.
+   Column percentages inherited from desktop — they always sum to 100%. */
+@media (min-width:641px) and (max-width:1024px){
+    /* Smaller laptops: compact cell padding + tighter column mins so
+       the whole table fits inside the 95vw-wide modal without the
+       horizontal scroll that would otherwise appear below ~850vw. */
+    .lb-reg-table th, .lb-reg-table td{
+        padding:10px 8px;
+        font-size:13px;
+    }
+    .lb-reg-table .c-num   { min-width:32px; }
+    .lb-reg-table .c-name  { min-width:90px; }
+    .lb-reg-table .c-email { min-width:170px; max-width:280px; }
+    .lb-reg-table .c-phone { min-width:110px; }
+    .lb-reg-table .c-type  { min-width:90px; }
+    .lb-reg-table .c-date  { min-width:140px; }
+}
+
+/* ---- Notifications bar ----
+   Scoped styles. We deliberately avoid .btn-o on the "mark all" button
+   because that shared class forces width:100% + height:42px, which was
+   the root cause of the stretched-button issue. */
+.notif-bar{
+    margin-top:12px;
+    background:#fff;
+    border:1px solid #e4ebf1;
+    border-radius:12px;
+    padding:14px 18px;
+}
+.notif-bar[hidden]{ display:none; }
+.notif-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+}
+.notif-head-text{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; }
+.notif-title{ color:#1b365d; font-size:15px; }
+.notif-count{
+    background:#f39c12;
+    color:#1a1a1a;
+    padding:2px 10px;
+    border-radius:999px;
+    font-weight:800;
+    font-size:13px;
+    line-height:1.6;
+}
+.notif-sub{ color:#888; font-size:13px; }
+
+/* Compact pill button — explicit width:auto defeats the .btn-o 100% rule. */
+.notif-mark-all{
+    width:auto;
+    flex:0 0 auto;
+    background:#f39c12;
+    color:#fff;
+    border:0;
+    border-radius:999px;
+    padding:6px 16px;
+    font:700 13px Tajawal,sans-serif;
+    cursor:pointer;
+    transition:background .2s ease, transform .15s ease;
+    white-space:nowrap;
+}
+.notif-mark-all:hover{ background:#e08b0d; }
+.notif-mark-all:active{ transform:translateY(1px); }
+
+/* Notification list */
+.notif-list{
+    list-style:none;
+    padding:0;
+    margin:14px 0 0;
+    max-height:320px;
+    overflow:auto;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+.notif-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    padding:12px 14px;
+    background:#fff;
+    border:1px solid #e4ebf1;
+    border-radius:10px;
+    transition:background .15s ease, border-color .15s ease;
+}
+/* Unread: subtle warm wash + thin orange left strip so eye catches it. */
+.notif-item.is-unread{
+    background:#fff8ec;
+    border-color:#f1d8a4;
+    border-right:3px solid #f39c12;
+}
+.notif-item-body{ min-width:0; flex:1 1 auto; }
+.notif-item-msg{
+    color:#1b365d;
+    font-weight:700;
+    font-size:14px;
+    line-height:1.6;
+    display:block;
+    white-space:normal;
+    overflow-wrap:anywhere;
+}
+.notif-item.is-read .notif-item-msg{ color:#6b7c88; font-weight:400; }
+.notif-item-time{
+    color:#9aa5b2;
+    font-size:12px;
+    display:block;
+    margin-top:2px;
+}
+.notif-item-action{
+    flex:0 0 auto;
+    background:#fff;
+    color:#1b365d;
+    border:1px solid #e4ebf1;
+    border-radius:999px;
+    padding:5px 12px;
+    font:700 12px Tajawal,sans-serif;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+}
+.notif-item-action:hover{ background:#f39c12; color:#fff; border-color:#f39c12; }
+
+/* Mobile: tighten padding + allow action button to drop below message. */
+@media (max-width: 640px){
+    .notif-bar{ padding:12px 14px; }
+    .notif-head{ gap:10px; }
+    .notif-mark-all{ padding:6px 14px; font-size:12px; }
+    .notif-item{ flex-wrap:wrap; padding:10px 12px; }
+    .notif-item-action{ margin-top:4px; }
+}
+</style>
+
+<script id="leader-dashboard-data" type="application/json">
+{
+    "events": [{% for e in events %}{"id": {{ e.id }}, "title": {{ e.title|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}]
+}
+</script>
+
+<section class="sec leader-dashboard">
+<div class="wrap">
+
+    <!-- إدارة الفعاليات -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الفعاليات</h2>
+                <p class="dashboard-description">
+                    إنشاء فعاليات جديدة وإدارة الفعاليات الحالية.
+                </p>
+            </div>
+            <button class="btn btn-o" id="addEventBtn">+ إنشاء فعالية جديدة</button>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العنوان</th>
+                            <th>التاريخ</th>
+                            <th>الوقت</th>
+                            <th>الرؤية</th>
+                            <th>التسجيلات</th>
+                            <th>تقدم المهام</th>
+                            <th>الشعار</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventList">
+                        {% for ev in events %}
+                        {% set p = event_progress.get(ev.id, {'total':0,'approved':0,'pending':0,'remaining':0,'pct':0}) %}
+                        <tr data-event-id="{{ ev.id }}"
+                            data-event-title="{{ ev.title }}"
+                            data-event-date="{{ ev.date.strftime('%Y-%m-%d') }}"
+                            data-event-time="{{ ev.date.strftime('%H:%M') }}"
+                            data-event-is-public="{{ '1' if ev.is_public else '0' }}"
+                            data-event-image="{{ ev.image_path or '' }}"
+                            data-event-reg-count="{{ reg_counts.get(ev.id, 0) }}"
+                            data-event-task-count="{{ p.total }}"
+                            data-event-capacity="{{ ev.capacity if ev.capacity is not none else '' }}"
+                            data-event-deadline-date="{{ ev.registration_deadline.strftime('%Y-%m-%d') if ev.registration_deadline else '' }}"
+                            data-event-deadline-time="{{ ev.registration_deadline.strftime('%H:%M') if ev.registration_deadline else '' }}"
+                            data-event-tags="{{ ev.tags or '' }}">
+                            <td>{{ ev.title }}</td>
+                            <td data-event-date-cell>{{ ev.date.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ ev.date.strftime('%H:%M') }}</td>
+                            <td>
+                                {% if ev.is_public %}
+                                <span class="dashboard-status status-approved">عامة</span>
+                                {% else %}
+                                <span class="dashboard-status status-pending">خاصة</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <strong>{{ reg_counts.get(ev.id, 0) }}</strong>
+                                {% if ev.is_public %}
+                                &nbsp;<button type="button" class="dashboard-action" data-view-registrations="{{ ev.id }}">عرض</button>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if p.total > 0 %}
+                                    <div class="ev-progress" title="معتمد: {{ p.approved }} · قيد المراجعة: {{ p.pending }} · متبقي: {{ p.remaining }}">
+                                        <div class="track"><span class="fill" data-pct="{{ p.pct }}"></span></div>
+                                        <b class="ev-progress-label">{{ p.approved }}/{{ p.total }} — {{ p.pct }}%</b>
+                                    </div>
+                                {% else %}
+                                    <span style="color:#888;font-size:12px">— لا توجد مهام</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ev.image_path or '—' }}</td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action" data-edit-event="{{ ev.id }}">تعديل</button>
+                                    <button class="dashboard-action reject" data-delete-event="{{ ev.id }}">حذف</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="8" style="text-align:center;color:#888">لا توجد فعاليات حالياً.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- إدارة المهام -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة المهام</h2>
+                <p class="dashboard-description">
+                    توزيع المهام على أعضاء النادي ومتابعة إنجازها.
+                </p>
+            </div>
+
+            <div class="dashboard-heading-actions">
+                <button class="btn btn-o" id="addTaskBtn">+ إضافة مهمة</button>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الفعالية</th>
+                            <th>المهمة</th>
+                            <th>العضو</th>
+                            <th>الدور</th>
+                            <th>النقاط</th>
+                            <th>موعد التسليم</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="leaderTasks">
+                        {% for t in tasks %}
+                        <tr
+                            data-task-id="{{ t.id }}"
+                            data-task-title="{{ t.title }}"
+                            data-task-points="{{ t.points }}"
+                            data-task-deadline="{{ t.deadline.isoformat() if t.deadline else '' }}"
+                            data-task-status="{{ t.status }}"
+                            data-task-role="{{ t.role or '' }}"
+                            data-task-event-id="{{ t.event_id or '' }}"
+                            data-task-member-id="{{ t.assigned_user_id or '' }}">
+                            <td>{{ t.event.title if t.event else '—' }}</td>
+                            <td>{{ t.title }}</td>
+                            <td>{{ t.assigned_user.name if t.assigned_user else '—' }}</td>
+                            <td>{{ t.role or '—' }}</td>
+                            <td><b>{{ t.points }}</b></td>
+                            <td data-deadline-cell>{{ t.deadline.isoformat() if t.deadline else '—' }}</td>
+                            <td>
+                                <span class="dashboard-status {{ 'status-approved' if t.status == 'مكتملة' else 'status-pending' }}">{{ t.status }}</span>
+                            </td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action" data-edit-task="{{ t.id }}">تعديل</button>
+                                    <button class="dashboard-action reject" data-delete-task="{{ t.id }}">حذف</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="8" style="text-align:center;color:#888">لا توجد مهام حالياً.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- اعتماد مهام الأعضاء -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">اعتماد مهام الأعضاء</h2>
+                <p class="dashboard-description">
+                    المهام التي أكملها الأعضاء وتنتظر اعتمادك. تُمنح النقاط فور الاعتماد.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العضو</th>
+                            <th>المهمة</th>
+                            <th>الفعالية</th>
+                            <th>النقاط</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingApprovalList">
+                        {% for t in pending_approval %}
+                        <tr data-pending-task-id="{{ t.id }}">
+                            <td>{{ t.assigned_user.name if t.assigned_user else '—' }}</td>
+                            <td>{{ t.title }}</td>
+                            <td>{{ t.event.title if t.event else '—' }}</td>
+                            <td><b>{{ t.points }}</b></td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action approve" data-approve-task="{{ t.id }}">
+                                        ✓ اعتماد
+                                    </button>
+                                    <button class="dashboard-action reject" data-reject-task="{{ t.id }}">
+                                        ✗ رفض
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" style="text-align:center;color:#888">لا توجد مهام تنتظر الاعتماد.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- طلبات الانضمام للنادي -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">طلبات الانضمام للنادي</h2>
+                <p class="dashboard-description">
+                    مراجعة طلبات العضوية الواردة من بوابة الزوار.
+                    <strong>الاعتماد لا يُنشئ حساباً تلقائياً — يجب على المتقدم التسجيل بنفسه عبر صفحة
+                    <a href="{{ url_for('signup_form') }}">إنشاء حساب</a> باستخدام رمز الدعوة.</strong>
+                </p>
+                <p style="margin-top:8px;color:#555">
+                    قيد المراجعة: <strong>{{ membership_counts.pending }}</strong>
+                    &nbsp;·&nbsp; معتمد: <strong style="color:#27ae60">{{ membership_counts.approved }}</strong>
+                    &nbsp;·&nbsp; مرفوض: <strong style="color:#c0392b">{{ membership_counts.rejected }}</strong>
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <strong style="color:#1b365d">عرض:</strong>
+                <button type="button" class="dashboard-action membership-filter active" data-filter="all">الكل</button>
+                <button type="button" class="dashboard-action membership-filter" data-filter="pending">قيد المراجعة</button>
+                <button type="button" class="dashboard-action membership-filter" data-filter="approved">معتمد</button>
+                <button type="button" class="dashboard-action membership-filter" data-filter="rejected">مرفوض</button>
+            </div>
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الاسم</th>
+                            <th>الرقم الجامعي</th>
+                            <th>التخصص</th>
+                            <th>البريد</th>
+                            <th>تاريخ التقديم</th>
+                            <th>الحالة</th>
+                            <th>المراجع</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="membershipRequestsList">
+                        {% for m in membership_requests %}
+                        <tr data-membership-id="{{ m.id }}" data-status="{{ m.status }}">
+                            <td>{{ m.name }}</td>
+                            <td>{{ m.student_id }}</td>
+                            <td>{{ m.major }}</td>
+                            <td>{{ m.email if m.email else '—' }}</td>
+                            <td>{{ m.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td data-membership-status>
+                                {% if m.status == 'approved' %}
+                                <span class="dashboard-status status-approved">معتمد</span>
+                                {% elif m.status == 'rejected' %}
+                                <span class="dashboard-status status-rejected">مرفوض</span>
+                                {% else %}
+                                <span class="dashboard-status status-pending">قيد المراجعة</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if m.reviewer %}
+                                    {{ m.reviewer.name }}<br>
+                                    <small style="color:#888">{{ m.reviewed_at.strftime('%Y-%m-%d %H:%M') if m.reviewed_at else '' }}</small>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td data-membership-actions>
+                                {% if m.status == 'pending' %}
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action approve" data-approve-membership="{{ m.id }}">✓ اعتماد</button>
+                                    <button class="dashboard-action reject" data-reject-membership="{{ m.id }}">✗ رفض</button>
+                                    {% if m.reason %}
+                                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
+                                    {% endif %}
+                                </div>
+                                {% elif m.reason %}
+                                <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
+                                {% else %}—{% endif %}
+                                {% if m.reason %}
+                                <template data-reason-for="{{ m.id }}">{{ m.reason }}</template>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="8" style="text-align:center;color:#888">لا توجد طلبات انضمام بعد.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- إدارة اللجان (Phase 7) -->
+    <style>
+        .cm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px}
+        .cm-card{background:#fff;border:1px solid #e6ecf2;border-radius:12px;padding:18px 20px;
+                 box-shadow:0 2px 10px rgba(10,25,38,.05);display:flex;flex-direction:column;gap:10px}
+        .cm-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+        .cm-card-head h3{margin:0;color:#1b365d;font-size:17px;font-weight:800}
+        .cm-card-head .cm-count{background:#eef2f6;color:#1b365d;padding:3px 10px;border-radius:999px;
+                                font-size:12px;font-weight:700;white-space:nowrap}
+        .cm-leader{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;
+                   background:#fff5e5;color:#9a5a00;font-size:13px;font-weight:700}
+        .cm-leader.none{background:#f7f9fc;color:#6a7f91;font-weight:600}
+        .cm-desc{color:#6a7f91;font-size:13px;line-height:1.6;margin:0}
+        .cm-members{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+        .cm-member{display:flex;justify-content:space-between;align-items:center;gap:8px;
+                   padding:8px 12px;border:1px solid #eef2f6;border-radius:10px;background:#fcfdfe;
+                   font-size:13.5px;color:#1b365d}
+        .cm-member .cm-badge{background:#f39c12;color:#fff;padding:2px 8px;border-radius:999px;
+                             font-size:11px;font-weight:700;line-height:1.4}
+        .cm-member-actions{display:flex;gap:4px}
+        .cm-mini-btn{background:transparent;border:1px solid #e6ecf2;color:#6a7f91;padding:2px 10px;
+                     border-radius:999px;font:700 11.5px Tajawal,sans-serif;cursor:pointer;
+                     transition:color .15s,border-color .15s,background .15s}
+        .cm-mini-btn:hover{color:#f39c12;border-color:#f39c12;background:#fff8ec}
+        .cm-mini-btn.danger:hover{color:#c0392b;border-color:#c0392b;background:#fdecec}
+        .cm-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:10px;
+                         border-top:1px solid #eef2f6}
+        .cm-card-actions .btn-lite{background:transparent;color:#f39c12;border:1px solid #f39c12;
+                                   padding:6px 14px;border-radius:8px;font:700 12.5px Tajawal,sans-serif;
+                                   cursor:pointer;transition:background .15s,color .15s}
+        .cm-card-actions .btn-lite:hover{background:#f39c12;color:#fff}
+        .cm-card-actions .btn-lite.danger{color:#c0392b;border-color:#c0392b}
+        .cm-card-actions .btn-lite.danger:hover{background:#c0392b;color:#fff}
+        .cm-empty{grid-column:1/-1;text-align:center;color:#9fb3c4;padding:28px 20px;
+                  border:1px dashed #e6ecf2;border-radius:12px;background:#fcfdfe}
+        .cm-unassigned{margin-top:18px;background:#f7f9fc;border:1px solid #e6ecf2;border-radius:10px;
+                       padding:12px 16px}
+        .cm-unassigned-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
+                            margin-bottom:6px}
+        .cm-unassigned-head b{color:#1b365d;font-size:14px}
+        .cm-unassigned-list{display:flex;flex-wrap:wrap;gap:6px}
+        .cm-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;
+                 background:#fff;border:1px solid #d6dee6;color:#1b365d;font-size:12px;font-weight:600}
+        @media (max-width:600px){ .cm-grid{grid-template-columns:1fr} }
+    </style>
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة اللجان</h2>
+                <p class="dashboard-description">
+                    إنشاء اللجان وتعيين قائد وأعضاء لكل لجنة. تسجيل عضو جديد لا يضعه تلقائياً في أي لجنة.
+                </p>
+            </div>
+            <div class="dashboard-heading-actions">
+                <button class="btn btn-o" id="addCommitteeBtn">+ إنشاء لجنة جديدة</button>
+            </div>
+        </div>
+
+        <div class="cm-grid" id="committeeGrid">
+            {% for c in committees %}
+            {% set members_list = c.members.all() %}
+            <article class="cm-card" data-committee-id="{{ c.id }}">
+                <div class="cm-card-head">
+                    <div>
+                        <h3>{{ c.name }}</h3>
+                        {% if c.description %}
+                        <p class="cm-desc">{{ c.description }}</p>
+                        {% endif %}
+                    </div>
+                    <span class="cm-count">{{ members_list|length }} عضو</span>
+                </div>
+
+                {% if c.leader %}
+                <div class="cm-leader">★ قائد اللجنة: {{ c.leader.name }}</div>
+                {% else %}
+                <div class="cm-leader none">★ لا يوجد قائد معيّن بعد</div>
+                {% endif %}
+
+                <ul class="cm-members">
+                    {% for m in members_list %}
+                    <li class="cm-member" data-user-id="{{ m.id }}">
+                        <span>
+                            {{ m.name }}
+                            {% if c.leader_user_id == m.id %}<span class="cm-badge">قائد</span>{% endif %}
+                            <small style="color:#6a7f91;font-weight:400">· {{ m.email }}</small>
+                        </span>
+                        <span class="cm-member-actions">
+                            {% if c.leader_user_id != m.id %}
+                            <button type="button" class="cm-mini-btn" data-set-leader="{{ m.id }}" data-committee="{{ c.id }}">تعيين قائداً</button>
+                            {% endif %}
+                            <button type="button" class="cm-mini-btn" data-move-member="{{ m.id }}" data-committee="{{ c.id }}">نقل</button>
+                            <button type="button" class="cm-mini-btn danger" data-remove-member="{{ m.id }}" data-committee="{{ c.id }}">إزالة</button>
+                        </span>
+                    </li>
+                    {% else %}
+                    <li class="cm-member" style="justify-content:center;color:#9fb3c4;font-style:italic">
+                        لا يوجد أعضاء في هذه اللجنة بعد.
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                <div class="cm-card-actions">
+                    <button type="button" class="btn-lite" data-add-member="{{ c.id }}">+ إضافة عضو</button>
+                    <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}">تعديل</button>
+                    <button type="button" class="btn-lite danger" data-delete-committee="{{ c.id }}" data-committee-name="{{ c.name }}">حذف اللجنة</button>
+                </div>
+            </article>
+            {% else %}
+            <div class="cm-empty">لا توجد لجان بعد — اضغط «إنشاء لجنة جديدة» لإضافة أول لجنة.</div>
+            {% endfor %}
+        </div>
+
+        {% if unassigned_members %}
+        <div class="cm-unassigned">
+            <div class="cm-unassigned-head">
+                <b>أعضاء بدون لجنة ({{ unassigned_members|length }})</b>
+                <span style="color:#6a7f91;font-size:12.5px">يمكن إضافتهم إلى أي لجنة من زر «+ إضافة عضو».</span>
+            </div>
+            <div class="cm-unassigned-list">
+                {% for u in unassigned_members %}
+                <span class="cm-chip">{{ u.name }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+
+    <!-- اعتماد المقالات -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">اعتماد المقالات</h2>
+                <p class="dashboard-description">
+                    المقالات المرفوعة من الأعضاء. المقال لا يظهر في الجريدة العامة إلا بعد الاعتماد.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الكاتب</th>
+                            <th>العنوان</th>
+                            <th>التصنيف</th>
+                            <th>التاريخ</th>
+                            <th>الحالة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="articleApprovalList">
+                        {% for article in articles %}
+                        <tr data-article-id="{{ article.id }}" data-article-status="{{ article.status }}">
+                            <td>{{ article.author_name }}</td>
+                            <td>{{ article.title }}</td>
+                            <td>{{ article.author_sector }}</td>
+                            <td>{{ article.date_published.strftime('%Y-%m-%d') }}</td>
+                            <td data-article-status-cell>
+                                {% if article.status == 'approved' %}
+                                <span class="dashboard-status status-approved">معتمد</span>
+                                {% elif article.status == 'rejected' %}
+                                <span class="dashboard-status status-rejected">مرفوض</span>
+                                {% else %}
+                                <span class="dashboard-status status-pending">قيد المراجعة</span>
+                                {% endif %}
+                            </td>
+                            <td data-article-actions>
+                                <div class="dashboard-actions">
+                                    {% if article.status != 'approved' %}
+                                    <button class="dashboard-action approve" data-approve-article="{{ article.id }}">✓ اعتماد</button>
+                                    {% endif %}
+                                    {% if article.status != 'rejected' %}
+                                    <button class="dashboard-action reject" data-reject-article="{{ article.id }}">✗ رفض</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" style="text-align:center;color:#888">لا توجد مقالات حتى الآن.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- إدارة الرعاة -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">إدارة الرعاة</h2>
+                <p class="dashboard-description">
+                    إضافة أو حذف شعارات الرعاة المشاركين في دعم النادي.
+                </p>
+            </div>
+
+            <button class="btn btn-o" id="addSponsorBtn">
+                + إضافة راعٍ
+            </button>
+        </div>
+
+        <div class="sponsor-dashboard-grid" id="sponsorList">
+            {% for s in sponsors %}
+            <div class="sponsor-dashboard-card" data-sponsor-id="{{ s.id }}">
+                <button class="sponsor-delete" data-delete-sponsor="{{ s.id }}" aria-label="حذف">×</button>
+                {% set src = s.logo_path|static_image %}
+                {% if src %}<img src="{{ src }}" alt="{{ s.name }}">{% endif %}
+                <h4>{{ s.name }}</h4>
+                {% if s.tier %}<small style="color:#888">{{ s.tier }}</small>{% endif %}
+            </div>
+            {% else %}
+            <p class="empty">لا يوجد رعاة حالياً.</p>
+            {% endfor %}
+        </div>
+
+    </div>
+
+
+    <!-- تسجيلات الزوار -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تسجيلات الزوار</h2>
+                <p class="dashboard-description">
+                    قائمة بجميع تسجيلات الزوار في الفعاليات العامة
+                    (مصدرها نموذج «بوابة الزوار والأعضاء»).
+                    <strong>إجمالي التسجيلات: {{ visitor_registrations|length }}</strong>
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الاسم الكامل</th>
+                            <th>البريد الإلكتروني</th>
+                            <th>رقم الجوال</th>
+                            <th>الفعالية</th>
+                            <th>تاريخ التسجيل</th>
+                            <th>النوع</th>
+                        </tr>
+                    </thead>
+                    <tbody id="visitorRegistrationsList">
+                    {% for r in visitor_registrations %}
+                        <tr data-registration-id="{{ r.id }}">
+                            <td><b>{{ r.name }}</b></td>
+                            <td dir="ltr" style="text-align:right">{{ r.email }}</td>
+                            <td dir="ltr" style="text-align:right">{{ r.phone or '—' }}</td>
+                            <td>{{ r.event.title if r.event else '— (فعالية محذوفة)' }}</td>
+                            <td>{{ r.registered_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                {% if r.user_id %}
+                                    <span class="dashboard-status status-approved">عضو مسجّل</span>
+                                {% else %}
+                                    <span class="dashboard-status status-pending">زائر</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" style="text-align:center;color:#888;padding:28px">
+                            لا توجد تسجيلات زوار بعد — ستظهر هنا تلقائياً بعد أول تسجيل عبر «بوابة الزوار والأعضاء».
+                        </td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- المبادرات بانتظار الاعتماد -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">المبادرات بانتظار الاعتماد</h2>
+                <p class="dashboard-description">
+                    اعتماد أي مبادرة يمنح صاحب الاقتراح نقاط المبادرة تلقائياً.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>العنوان</th>
+                            <th>مقدّم المبادرة</th>
+                            <th>الوصف</th>
+                            <th>تاريخ التقديم</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingInitiativesList">
+                    {% for i in pending_initiatives %}
+                        <tr data-pending-init-id="{{ i.id }}">
+                            <td><b>{{ i.title }}</b></td>
+                            <td>{{ i.proposer.name if i.proposer else '—' }}</td>
+                            <td style="max-width:360px">{{ i.description or '—' }}</td>
+                            <td>{{ i.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <div class="dashboard-actions">
+                                    <button class="dashboard-action approve" data-approve-init="{{ i.id }}">✓ اعتماد</button>
+                                    <button class="dashboard-action reject" data-reject-init="{{ i.id }}">✗ رفض</button>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" style="text-align:center;color:#888">لا توجد مبادرات بانتظار الاعتماد.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+</section>
+
+<script>
+// Apply width from data-pct — avoids embedding Jinja inside CSS attributes.
+document.querySelectorAll('.ev-progress .fill[data-pct]').forEach(el => {
+    const pct = Math.max(0, Math.min(100, parseInt(el.dataset.pct, 10) || 0));
+    el.style.width = pct + '%';
+});
+</script>
+
+<script>
+/* =========================================================
+   Phase 7 — Committee Management
+   Uses the shared window.modal() + window.toast() + window.closeModal()
+   helpers from main.js. We wait for DOMContentLoaded because this inline
+   script runs during HTML parsing — BEFORE the deferred main.js has
+   executed — so the helpers aren't on window yet.
+   Reloads the page after each successful mutation so the server-rendered
+   cards (which embed Jinja-side data) stay the source of truth.
+   ========================================================= */
+document.addEventListener('DOMContentLoaded', function () {
+    const modal = window.modal;
+    const toast = window.toast;
+    const closeModal = window.closeModal;
+    if (typeof modal !== 'function') {
+        console.error('[committees] main.js helpers unavailable — modal/toast missing');
+        return;
+    }
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+        m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+    async function loadRoster() {
+        const res = await fetch('/leader/committees', {credentials: 'same-origin'});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+
+    function memberOptions(members, selectedId) {
+        return [
+            '<option value="">— اختر عضواً —</option>',
+            ...members.map(m => {
+                const sel = (selectedId && Number(selectedId) === m.id) ? ' selected' : '';
+                return `<option value="${m.id}"${sel}>${esc(m.name)} · ${esc(m.email)}</option>`;
+            }),
+        ].join('');
+    }
+
+    async function postJSON(url, body) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','Accept':'application/json'},
+            body: JSON.stringify(body || {}),
+            credentials: 'same-origin',
+        });
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+        return {ok: res.ok, status: res.status, data};
+    }
+
+    /* ---- CREATE committee ---- */
+    document.getElementById('addCommitteeBtn')?.addEventListener('click', async () => {
+        let roster;
+        try { roster = await loadRoster(); }
+        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
+        const unassigned = roster.unassigned_members || [];
+        modal(`
+            <h3>إنشاء لجنة جديدة</h3>
+            <div class="dashboard-form">
+                <label>اسم اللجنة *</label>
+                <input id="cmNewName" type="text" maxlength="120" placeholder="مثال: لجنة البرمجة">
+                <label>وصف مختصر (اختياري)</label>
+                <textarea id="cmNewDesc" maxlength="400" rows="3" placeholder="نشاط اللجنة ومسؤولياتها"></textarea>
+                <label>قائد اللجنة (اختياري — يجب أن يكون عضواً مسجلاً)</label>
+                <select id="cmNewLeader">${memberOptions(unassigned, '')}</select>
+                <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
+                    القائمة أعلاه تعرض الأعضاء غير المعيّنين. يمكنك إضافة أعضاء وتعديل القيادة لاحقاً.
+                </p>
+                <div class="row" style="margin-top:14px">
+                    <button class="btn btn-o" id="cmSaveNew">إنشاء اللجنة</button>
+                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                </div>
+            </div>
+        `);
+        document.getElementById('cmSaveNew').onclick = async () => {
+            const name = document.getElementById('cmNewName').value.trim();
+            const description = document.getElementById('cmNewDesc').value.trim();
+            const leaderId = document.getElementById('cmNewLeader').value;
+            if (!name) return toast('اسم اللجنة مطلوب');
+            const body = {name, description};
+            if (leaderId) body.leader_user_id = Number(leaderId);
+            const r = await postJSON('/leader/committees', body);
+            if (!r.ok) return toast(r.data.error || 'فشل الإنشاء');
+            closeModal();
+            toast('تم إنشاء اللجنة');
+            location.reload();
+        };
+    });
+
+    /* ---- EDIT committee (name + description) ---- */
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-edit-committee]');
+        if (!btn) return;
+        const id = btn.dataset.editCommittee;
+        const name = btn.dataset.committeeName || '';
+        const desc = btn.dataset.committeeDesc || '';
+        modal(`
+            <h3>تعديل اللجنة</h3>
+            <div class="dashboard-form">
+                <label>اسم اللجنة *</label>
+                <input id="cmEditName" type="text" maxlength="120" value="${esc(name)}">
+                <label>الوصف</label>
+                <textarea id="cmEditDesc" maxlength="400" rows="3">${esc(desc)}</textarea>
+                <div class="row" style="margin-top:14px">
+                    <button class="btn btn-o" id="cmSaveEdit">حفظ</button>
+                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                </div>
+            </div>
+        `);
+        document.getElementById('cmSaveEdit').onclick = async () => {
+            const newName = document.getElementById('cmEditName').value.trim();
+            const newDesc = document.getElementById('cmEditDesc').value.trim();
+            if (!newName) return toast('اسم اللجنة مطلوب');
+            const r = await postJSON(`/leader/committees/${id}/edit`, {name: newName, description: newDesc});
+            if (!r.ok) return toast(r.data.error || 'فشل الحفظ');
+            closeModal();
+            toast('تم تحديث اللجنة');
+            location.reload();
+        };
+    });
+
+    /* ---- DELETE committee ---- */
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-delete-committee]');
+        if (!btn) return;
+        const id = btn.dataset.deleteCommittee;
+        const name = btn.dataset.committeeName || 'هذه اللجنة';
+        if (!confirm(`سيتم حذف لجنة «${name}».\n\nلن يتم حذف حسابات الأعضاء — فقط ستُلغى عضويتهم من هذه اللجنة ويمكنك إعادة تعيينهم لاحقاً.\n\nهل تريد المتابعة؟`)) return;
+        const r = await postJSON(`/leader/committees/${id}/delete`);
+        if (!r.ok) return toast(r.data.error || 'فشل الحذف');
+        toast(`تم حذف اللجنة · أُلغيت عضوية ${r.data.members_detached || 0} عضواً`);
+        location.reload();
+    });
+
+    /* ---- ADD member ---- */
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-add-member]');
+        if (!btn) return;
+        const id = btn.dataset.addMember;
+        let roster;
+        try { roster = await loadRoster(); }
+        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
+        const unassigned = roster.unassigned_members || [];
+        if (!unassigned.length) {
+            toast('لا يوجد أعضاء غير معيّنين حالياً — انقل عضواً من لجنة أخرى عبر زر «نقل».');
+            return;
+        }
+        modal(`
+            <h3>إضافة عضو للجنة</h3>
+            <div class="dashboard-form">
+                <label>اختر عضواً من غير المعيّنين</label>
+                <select id="cmAddUser">${memberOptions(unassigned, '')}</select>
+                <div class="row" style="margin-top:14px">
+                    <button class="btn btn-o" id="cmAddSave">إضافة</button>
+                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                </div>
+            </div>
+        `);
+        document.getElementById('cmAddSave').onclick = async () => {
+            const uid = document.getElementById('cmAddUser').value;
+            if (!uid) return toast('اختر عضواً');
+            const r = await postJSON(`/leader/committees/${id}/add-member`, {user_id: Number(uid)});
+            if (!r.ok) return toast(r.data.error || 'فشل الإضافة');
+            closeModal();
+            toast('تم إضافة العضو');
+            location.reload();
+        };
+    });
+
+    /* ---- REMOVE member (keeps their account) ---- */
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-remove-member]');
+        if (!btn) return;
+        const committeeId = btn.dataset.committee;
+        const userId = btn.dataset.removeMember;
+        if (!confirm('إزالة العضو من هذه اللجنة؟\nحسابه يبقى مسجّلاً في النادي.')) return;
+        const r = await postJSON(`/leader/committees/${committeeId}/remove-member`, {user_id: Number(userId)});
+        if (!r.ok) return toast(r.data.error || 'فشل الإزالة');
+        toast('تمت إزالة العضو من اللجنة');
+        location.reload();
+    });
+
+    /* ---- MOVE member to another committee ---- */
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-move-member]');
+        if (!btn) return;
+        const userId = btn.dataset.moveMember;
+        const currentCommitteeId = btn.dataset.committee;
+        let roster;
+        try { roster = await loadRoster(); }
+        catch (_) { toast('تعذر تحميل اللجان'); return; }
+        const options = (roster.committees || [])
+            .filter(c => String(c.id) !== String(currentCommitteeId))
+            .map(c => `<option value="${c.id}">${esc(c.name)} (${c.members_count} عضو)</option>`);
+        if (!options.length) {
+            toast('لا توجد لجنة أخرى — أنشئ لجنة ثانية أولاً.');
+            return;
+        }
+        modal(`
+            <h3>نقل العضو إلى لجنة أخرى</h3>
+            <div class="dashboard-form">
+                <label>اختر اللجنة المقصودة</label>
+                <select id="cmMoveTarget">
+                    <option value="">— اختر لجنة —</option>
+                    ${options.join('')}
+                </select>
+                <div class="row" style="margin-top:14px">
+                    <button class="btn btn-o" id="cmMoveSave">نقل</button>
+                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                </div>
+            </div>
+        `);
+        document.getElementById('cmMoveSave').onclick = async () => {
+            const target = document.getElementById('cmMoveTarget').value;
+            if (!target) return toast('اختر لجنة');
+            const r = await postJSON(`/leader/committees/${target}/add-member`, {user_id: Number(userId)});
+            if (!r.ok) return toast(r.data.error || 'فشل النقل');
+            closeModal();
+            toast('تم نقل العضو');
+            location.reload();
+        };
+    });
+
+    /* ---- SET leader (promote an existing member of the committee) ---- */
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-set-leader]');
+        if (!btn) return;
+        const committeeId = btn.dataset.committee;
+        const userId = btn.dataset.setLeader;
+        if (!confirm('تعيين هذا العضو قائداً للجنة؟')) return;
+        const r = await postJSON(`/leader/committees/${committeeId}/set-leader`, {user_id: Number(userId)});
+        if (!r.ok) return toast(r.data.error || 'فشل التعيين');
+        toast('تم تعيين قائد اللجنة');
+        location.reload();
+    });
+});
+</script>
+
+{% include "_footer.html" %}
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>رفع مقال | جريدة الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    <style>
+        /* main.js injects a 74px fixed-position nav bar at the top of
+           <body>. Push the first content block past it so the heading
+           is never clipped. */
+        .ua-container { max-width: 820px; margin: 110px auto 48px; padding: 0 20px; }
+        .ua-heading {
+            background: #1b365d;
+            color: #fff;
+            padding: 28px 30px;
+            border-radius: 14px;
+        }
+        .ua-heading h1 { margin: 0 0 6px; font-size: 24px; }
+        .ua-heading p { margin: 0; color: #e9eef3; line-height: 1.75; }
+        .ua-form-card {
+            background: #fff;
+            padding: 28px;
+            margin-top: 22px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+        .ua-form-card label { display: block; font-weight: 700; margin: 18px 0 8px; color: #1b365d; }
+        .ua-form-card .ua-hint { color: #888; font-weight: 400; font-size: 12.5px; margin-right: 6px; }
+        .ua-form-card input[type="text"],
+        .ua-form-card select,
+        .ua-form-card textarea,
+        .ua-form-card input[type="file"] {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 15.5px;
+            background: #fff;
+        }
+        .ua-form-card textarea { min-height: 240px; resize: vertical; line-height: 1.9; }
+        .ua-form-card input:focus,
+        .ua-form-card select:focus,
+        .ua-form-card textarea:focus {
+            outline: 2px solid #f39c12;
+            border-color: transparent;
+        }
+        .ua-actions { display: flex; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+        .ua-btn {
+            display: inline-block;
+            border: 0;
+            background: #1b365d;
+            color: #fff;
+            padding: 12px 26px;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .ua-btn:hover { background: #f39c12; }
+        .ua-btn.secondary { background: transparent; color: #1b365d; border: 2px solid #1b365d; padding: 10px 24px; }
+        .ua-btn.secondary:hover { background: #1b365d; color: #fff; }
+        .ua-note { color: #666; line-height: 1.8; font-size: 14px; margin-top: 4px; }
+        .ua-field-error { color: #c0392b; font-size: 13px; margin-top: 6px; display: none; }
+        .ua-field-error.show { display: block; }
+        .ua-flash { padding: 14px 16px; border-radius: 10px; margin-top: 18px; font-weight: 700; line-height: 1.8; }
+        .ua-flash.success { background: #d4edda; color: #155724; border-right: 4px solid #27ae60; }
+        .ua-flash.error { background: #f8d7da; color: #721c24; border-right: 4px solid #c0392b; }
+
+        @media (max-width: 680px){
+            .ua-container { margin-top: 90px; padding: 0 14px; }
+            .ua-heading { padding: 22px 20px; }
+            .ua-form-card { padding: 20px 18px; }
+        }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<main class="ua-container">
+    <div class="ua-heading">
+        <h1>رفع مقال لجريدة الصناعة</h1>
+        <p>شارك معرفتك في مجالات الصناعة والابتكار — سيُراجع القائد مقالك قبل النشر، وتُضاف النقاط تلقائياً عند الاعتماد.</p>
+    </div>
+
+    {% if success %}
+    <div class="ua-flash success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="ua-flash error">{{ error }}</div>
+    {% endif %}
+
+    <div class="ua-form-card">
+        <form id="uploadArticleForm" method="POST" action="{{ url_for('upload_article') }}"
+              enctype="multipart/form-data" novalidate>
+
+            <label for="title">عنوان المقال <span class="ua-hint">(مطلوب — حتى 200 حرف)</span></label>
+            <input id="title" name="title" type="text" maxlength="200"
+                   placeholder="أدخل عنوان المقال"
+                   value="{{ (form.title if form else '') or '' }}" required>
+            <div class="ua-field-error" data-error-for="title">يرجى إدخال عنوان المقال.</div>
+
+            <label for="category">التصنيف <span class="ua-hint">(مطلوب)</span></label>
+            <select id="category" name="category" required>
+                <option value="">اختر التصنيف</option>
+                {% for c in categories %}
+                <option value="{{ c }}" {% if form and form.category == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+            <div class="ua-field-error" data-error-for="category">يرجى اختيار تصنيف المقال.</div>
+
+            <label for="content">محتوى المقال <span class="ua-hint">(مطلوب — نص عادي، تُحفظ فواصل الفقرات)</span></label>
+            <textarea id="content" name="content" maxlength="20000"
+                      placeholder="اكتب محتوى المقال هنا…"
+                      required>{{ (form.content if form else '') or '' }}</textarea>
+            <div class="ua-field-error" data-error-for="content">يرجى إدخال محتوى المقال.</div>
+
+            <label for="image">صورة المقال <span class="ua-hint">(اختياري — JPG / JPEG / PNG / WEBP، الحد الأقصى 5MB)</span></label>
+            <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+
+            <p class="ua-note">سيظهر المقال في «جريدة الصناعة» بعد اعتماد القائد.</p>
+
+            <div class="ua-actions">
+                <button type="submit" class="ua-btn">إرسال المقال للمراجعة</button>
+                <a href="{{ url_for('member_profile') }}" class="ua-btn secondary">العودة إلى لوحة العضو</a>
+            </div>
+        </form>
+    </div>
+</main>
+{% include "_footer.html" %}
+</body>
+</html>

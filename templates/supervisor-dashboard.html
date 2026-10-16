@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>لوحة تحكم المشرف الأكاديمي | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+<style>
+    /* ===== Shared helpers (supervisor dashboard only) ===== */
+    .mini-bar{background:#eef2f6;border-radius:999px;height:8px;overflow:hidden;flex:1;min-width:120px}
+    .mini-bar>span{display:block;height:100%;background:#f39c12;transition:width .3s ease}
+    .mini-bar>span.ok{background:#2ecc71}
+    .mini-bar>span.warn{background:#f39c12}
+    .mini-bar>span.danger{background:#e74c3c}
+
+    .sup-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .sup-chip{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;display:inline-block;white-space:nowrap}
+    .sup-chip.ok{background:#d4edda;color:#155724}
+    .sup-chip.pend{background:#fff3cd;color:#805d00}
+    .sup-chip.rej{background:#f8d7da;color:#721c24}
+    .sup-chip.info{background:#dbe8f5;color:#1b365d}
+    .sup-chip.overdue{background:#f8d7da;color:#721c24}
+
+    /* ===== Alerts bar ===== */
+    .sup-alerts{
+        display:flex;flex-direction:column;gap:10px;margin-bottom:22px;
+    }
+    .sup-alert{
+        display:flex;gap:12px;align-items:center;
+        padding:12px 16px;border-radius:12px;
+        border:1px solid transparent;
+        font-weight:600;font-size:14px;line-height:1.5;
+    }
+    .sup-alert.high{background:#fdecec;color:#721c24;border-color:#f5c6cb}
+    .sup-alert.medium{background:#fff8e1;color:#805d00;border-color:#f5e2a3}
+    .sup-alert .sup-alert-dot{
+        width:10px;height:10px;border-radius:50%;flex-shrink:0;
+    }
+    .sup-alert.high .sup-alert-dot{background:#e74c3c}
+    .sup-alert.medium .sup-alert-dot{background:#f39c12}
+    .sup-alerts-empty{
+        padding:12px 16px;border-radius:12px;
+        background:#eafaf1;color:#1e7a4b;border:1px solid #c7eed7;
+        font-weight:700;font-size:14px;
+    }
+
+    /* ===== Filters bar ===== */
+    .sup-filters{
+        display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+        gap:10px;margin-bottom:14px;
+    }
+    .sup-filters input,.sup-filters select{
+        width:100%;padding:9px 12px;border:1px solid #d6dee6;border-radius:10px;
+        font:600 13px Tajawal,sans-serif;background:#fff;color:#1b365d;
+        box-sizing:border-box;
+    }
+    .sup-filters input:focus,.sup-filters select:focus{
+        outline:none;border-color:#f39c12;box-shadow:0 0 0 3px rgba(243,156,18,.15);
+    }
+    .sup-filters .sup-filter-actions{
+        display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;
+    }
+    /* Compact filter-row buttons — override the global pill-style .btn so
+       Apply/Reset sit flush with the 13px filter inputs. */
+    .sup-filters .btn{
+        flex:0 1 auto;
+        height:36px;
+        min-width:0;
+        width:auto;
+        padding:0 14px;
+        border-radius:8px;
+        font:700 13px Tajawal,sans-serif;
+        gap:6px;
+    }
+    .sup-filters .btn-p{
+        background:#f39c12;color:#fff;border:1px solid #f39c12;
+    }
+    .sup-filters .btn-p:hover{filter:brightness(1.05)}
+    .sup-filters .btn-o{
+        background:#fff;color:#f39c12;border:1px solid #f39c12;
+    }
+    .sup-filters .btn-o:hover{background:#fff5e5}
+
+    /* ===== Pagination ===== */
+    .sup-pager{
+        display:flex;gap:6px;justify-content:center;align-items:center;
+        margin-top:14px;flex-wrap:wrap;
+    }
+    .sup-pager a,.sup-pager span{
+        padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;
+        border:1px solid #e6ecf2;text-decoration:none;color:#1b365d;
+        background:#fff;min-width:36px;text-align:center;
+    }
+    .sup-pager a:hover{border-color:#f39c12;color:#f39c12}
+    .sup-pager .on{background:#1b365d;color:#fff;border-color:#1b365d}
+    .sup-pager .mute{color:#9fb3c4;background:#f7f9fc;cursor:not-allowed}
+    .sup-pager .info{background:transparent;border:none;color:#6a7f91;font-weight:600}
+
+    /* ===== Details button ===== */
+    .sup-details-btn{
+        background:transparent;border:1px solid #d6dee6;color:#1b365d;
+        padding:4px 12px;border-radius:999px;font:700 12.5px Tajawal,sans-serif;
+        cursor:pointer;transition:color .2s,border-color .2s,background .2s;
+    }
+    .sup-details-btn:hover{color:#f39c12;border-color:#f39c12;background:#fff8ec}
+
+    /* ===== Wide modal (scoped). Higher specificity than #modal #box via ID chain. */
+    #modal.modal-wide{align-items:flex-start}
+    #modal.modal-wide #box.box--wide{
+        width:min(960px,95vw);
+        max-height:none;
+        padding:22px 24px;
+    }
+    .sup-modal-head{
+        display:flex;justify-content:space-between;align-items:flex-start;
+        gap:16px;margin-bottom:14px;padding-bottom:12px;
+        border-bottom:1px solid #eef2f6;
+    }
+    .sup-modal-head h3{margin:0;color:#1b365d;font-size:18px;font-weight:800}
+    .sup-modal-head p{margin:4px 0 0;color:#6a7f91;font-size:13px}
+    .sup-modal-close{
+        background:transparent;border:none;font-size:22px;cursor:pointer;
+        color:#6a7f91;line-height:1;padding:0 6px;
+    }
+    .sup-modal-close:hover{color:#e74c3c}
+    .sup-modal-body{max-height:60vh;overflow-y:auto}
+    .sup-modal-body .dashboard-table{margin:0}
+    .sup-modal-foot{
+        margin-top:14px;padding-top:12px;border-top:1px solid #eef2f6;
+        display:flex;justify-content:flex-end;gap:10px;
+    }
+
+    .sup-detail-list{display:grid;gap:10px;margin:0 0 14px}
+    .sup-detail-list dt{color:#6a7f91;font-size:12.5px;font-weight:700;margin:0}
+    .sup-detail-list dd{color:#1b365d;font-size:14px;font-weight:600;margin:0 0 6px}
+
+    .sup-empty{padding:24px;text-align:center;color:#9fb3c4}
+    .sup-count{color:#6a7f91;font-size:13px;margin:0 0 10px}
+</style>
+</head>
+
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>لوحة تحكم المشرف الأكاديمي</h1>
+    <span class="sub">متابعة أداء النادي ونسبة إنجاز المهام والفعاليات واللجان</span>
+</section>
+
+
+<section class="sec supervisor-dashboard">
+<div class="wrap">
+
+    <!-- ===== Alerts bar ===== -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تنبيهات</h2>
+                <p class="dashboard-description">
+                    مؤشرات تحتاج انتباهاً سريعاً، مُحسوبة لحظياً من قاعدة البيانات.
+                </p>
+            </div>
+        </div>
+
+        {% if stats.alerts %}
+        <div class="sup-alerts">
+            {% for a in stats.alerts %}
+            <div class="sup-alert {{ a.severity }}">
+                <span class="sup-alert-dot"></span>
+                <span>{{ a.label }}{% if a.kind == 'low_completion_committees' and a.committees %} — {{ a.committees|join('، ') }}{% endif %}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="sup-alerts-empty">لا توجد تنبيهات حالياً — جميع المؤشرات ضمن المسار الصحيح.</div>
+        {% endif %}
+    </div>
+
+
+    <!-- ===== Overview stats ===== -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الإحصائيات العامة</h2>
+                <p class="dashboard-description">
+                    جميع الأرقام مُستخرجة من قاعدة البيانات مباشرة وتتحدّث تلقائياً مع كل اعتماد أو تحديث.
+                </p>
+            </div>
+            <div class="dashboard-heading-actions">
+                <a class="btn btn-o" href="{{ url_for('supervisor_report_csv') }}">تحميل تقرير CSV</a>
+            </div>
+        </div>
+
+
+        <div class="analytics-cards">
+            <div class="analytics-card">
+                <span>عدد الأعضاء</span>
+                <strong>{{ stats.members.total }}</strong>
+            </div>
+            <div class="analytics-card">
+                <span>الفعاليات</span>
+                <strong>{{ stats.events.public_total }}</strong>
+                <small style="display:block;color:#6a7f91;font-size:12px;margin-top:4px;font-weight:600">
+                    {{ stats.events.upcoming }} قادمة · {{ stats.events.ongoing }} جارية · {{ stats.events.completed }} منتهية
+                </small>
+            </div>
+            <div class="analytics-card">
+                <span>المهام</span>
+                <strong>{{ stats.tasks.total }}</strong>
+                <small style="display:block;color:#6a7f91;font-size:12px;margin-top:4px;font-weight:600">
+                    {{ stats.tasks.approved }} معتمدة · {{ stats.tasks.pending_review }} قيد المراجعة · {{ stats.tasks.incomplete }} غير مكتملة
+                </small>
+            </div>
+            <div class="analytics-card">
+                <span>نسبة الإنجاز الإجمالية</span>
+                <strong>{{ stats.tasks.approved_pct }}%</strong>
+            </div>
+            <div class="analytics-card">
+                <span>إجمالي النقاط الموزّعة</span>
+                <strong>{{ stats.members.total_points }}</strong>
+            </div>
+            <div class="analytics-card">
+                <span>المبادرات قيد الاعتماد</span>
+                <strong>{{ stats.initiatives.pending }}</strong>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- ===== Event Progress ===== -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تقدم الفعاليات</h2>
+                <p class="dashboard-description">
+                    نسبة إنجاز كل فعالية = (المهام المعتمدة ÷ إجمالي مهام الفعالية) × ١٠٠.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>الفعالية</th>
+                            <th>التاريخ</th>
+                            <th>الحالة</th>
+                            <th>إجمالي</th>
+                            <th>معتمد</th>
+                            <th>قيد المراجعة</th>
+                            <th>متبقي</th>
+                            <th>الإنجاز</th>
+                            <th>التفاصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for ev in stats.per_event %}
+                        <tr>
+                            <td>{{ ev.event_title }}</td>
+                            <td>{{ ev.event_date[:10] if ev.event_date else '—' }}</td>
+                            <td>
+                                {% if ev.status == 'ongoing' %}
+                                    <span class="sup-chip info">جارية</span>
+                                {% elif ev.status == 'upcoming' %}
+                                    <span class="sup-chip pend">قادمة</span>
+                                {% else %}
+                                    <span class="sup-chip {{ 'overdue' if ev.behind_schedule else 'ok' }}">
+                                        {{ 'منتهية — متأخرة' if ev.behind_schedule else 'منتهية' }}
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ev.total }}</td>
+                            <td><b style="color:#155724">{{ ev.approved }}</b></td>
+                            <td>{{ ev.pending_review }}</td>
+                            <td>{{ ev.remaining }}</td>
+                            <td>
+                                <div class="sup-row">
+                                    <div class="mini-bar">
+                                        <span class="{{ 'ok' if ev.completion_pct >= 80 else ('warn' if ev.completion_pct >= 50 else 'danger') }}"
+                                              style="width:{{ ev.completion_pct }}%"></span>
+                                    </div>
+                                    <b>{{ ev.completion_pct }}%</b>
+                                </div>
+                            </td>
+                            <td>
+                                <button class="sup-details-btn" type="button"
+                                        data-event-detail="{{ ev.event_id }}">عرض</button>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="9" class="sup-empty">لا توجد فعاليات مرتبطة بمهام.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===== Committee Progress ===== -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تقدم اللجان</h2>
+                <p class="dashboard-description">
+                    ملخّص أداء كل لجنة بناءً على مهام أعضائها ونقاطهم المكتسبة.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>اللجنة</th>
+                            <th>الأعضاء</th>
+                            <th>المهام</th>
+                            <th>معتمد</th>
+                            <th>قيد المراجعة</th>
+                            <th>غير مكتمل</th>
+                            <th>الإنجاز</th>
+                            <th>النقاط</th>
+                            <th>التفاصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for c in stats.committees %}
+                        <tr>
+                            <td><b>{{ c.name }}</b></td>
+                            <td>{{ c.members }}</td>
+                            <td>{{ c.tasks_total }}</td>
+                            <td><b style="color:#155724">{{ c.tasks_approved }}</b></td>
+                            <td>{{ c.tasks_pending }}</td>
+                            <td>{{ c.tasks_incomplete }}</td>
+                            <td>
+                                <div class="sup-row">
+                                    <div class="mini-bar">
+                                        <span class="{{ 'ok' if c.completion_pct >= 80 else ('warn' if c.completion_pct >= 50 else 'danger') }}"
+                                              style="width:{{ c.completion_pct }}%"></span>
+                                    </div>
+                                    <b>{{ c.completion_pct }}%</b>
+                                </div>
+                            </td>
+                            <td><b style="color:#f39c12">{{ c.points_earned }}</b></td>
+                            <td>
+                                <button class="sup-details-btn" type="button"
+                                        data-committee-detail="{{ c.name }}">عرض</button>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="9" class="sup-empty">لم يتم تعيين لجان للأعضاء بعد.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===== Task Monitoring ===== -->
+    <div class="dashboard-section">
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">متابعة المهام</h2>
+                <p class="dashboard-description">
+                    بحث وتصفية جميع المهام في النادي مع ترقيم الصفحات.
+                </p>
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <form class="sup-filters" method="get" action="{{ url_for('supervisor_dashboard') }}">
+                <input type="search" name="q" placeholder="ابحث باسم المهمة أو العضو"
+                       value="{{ task_filters.q or '' }}">
+                <select name="event_id">
+                    <option value="">كل الفعاليات</option>
+                    {% for ev in stats.per_event %}
+                        <option value="{{ ev.event_id }}"
+                                {% if task_filters.event_id == ev.event_id %}selected{% endif %}>
+                            {{ ev.event_title }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <select name="committee">
+                    <option value="">كل اللجان</option>
+                    {% for name in committee_names %}
+                        <option value="{{ name }}"
+                                {% if task_filters.committee == name %}selected{% endif %}>
+                            {{ name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <select name="status">
+                    <option value="">كل الحالات</option>
+                    <option value="قيد التنفيذ" {% if task_filters.status == 'قيد التنفيذ' %}selected{% endif %}>قيد التنفيذ</option>
+                    <option value="مكتملة" {% if task_filters.status == 'مكتملة' %}selected{% endif %}>مكتملة</option>
+                </select>
+                <select name="approval">
+                    <option value="">كل مراحل الاعتماد</option>
+                    <option value="pending" {% if task_filters.approval == 'pending' %}selected{% endif %}>قيد الاعتماد</option>
+                    <option value="approved" {% if task_filters.approval == 'approved' %}selected{% endif %}>معتمد</option>
+                    <option value="rejected" {% if task_filters.approval == 'rejected' %}selected{% endif %}>مرفوض</option>
+                </select>
+                <div class="sup-filter-actions">
+                    <button class="btn btn-p" type="submit">تطبيق</button>
+                    <a class="btn btn-o" href="{{ url_for('supervisor_dashboard') }}">إعادة ضبط</a>
+                </div>
+            </form>
+
+            <p class="sup-count">إجمالي النتائج: <b>{{ task_total }}</b></p>
+
+            <div class="table-wrapper">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>المهمة</th>
+                            <th>الفعالية</th>
+                            <th>العضو</th>
+                            <th>اللجنة</th>
+                            <th>الدور</th>
+                            <th>النقاط</th>
+                            <th>الموعد</th>
+                            <th>الحالة</th>
+                            <th>الاعتماد</th>
+                            <th>التفاصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for t in tasks %}
+                        <tr>
+                            <td>{{ t.title }}</td>
+                            <td>{{ t.event.title if t.event else '—' }}</td>
+                            <td>{{ t.assigned_user.name if t.assigned_user else '—' }}</td>
+                            <td>{{ t.assigned_user.committee if (t.assigned_user and t.assigned_user.committee) else '—' }}</td>
+                            <td>{{ t.role or '—' }}</td>
+                            <td><b>{{ t.points }}</b></td>
+                            <td>{{ t.deadline.isoformat() if t.deadline else '—' }}</td>
+                            <td><span class="sup-chip {{ 'ok' if t.status == 'مكتملة' else 'pend' }}">{{ t.status }}</span></td>
+                            <td>
+                                {% if t.approval_status == 'approved' %}
+                                    <span class="sup-chip ok">معتمد</span>
+                                {% elif t.approval_status == 'rejected' %}
+                                    <span class="sup-chip rej">مرفوض</span>
+                                {% else %}
+                                    <span class="sup-chip pend">قيد الاعتماد</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="sup-details-btn" type="button"
+                                        data-task-detail
+                                        data-task='{{ {
+                                            "title": t.title,
+                                            "event": t.event.title if t.event else None,
+                                            "assigned_user": t.assigned_user.name if t.assigned_user else None,
+                                            "committee": (t.assigned_user.committee if (t.assigned_user and t.assigned_user.committee) else None),
+                                            "role": t.role,
+                                            "points": t.points,
+                                            "deadline": (t.deadline.isoformat() if t.deadline else None),
+                                            "status": t.status,
+                                            "approval_status": t.approval_status
+                                        }|tojson }}'>عرض</button>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="10" class="sup-empty">لا توجد مهام مطابقة.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if task_total_pages > 1 %}
+            {% set qs = {'q': task_filters.q, 'event_id': task_filters.event_id, 'committee': task_filters.committee, 'status': task_filters.status, 'approval': task_filters.approval} %}
+            <div class="sup-pager">
+                {% if task_page > 1 %}
+                    <a href="{{ url_for('supervisor_dashboard', page=task_page-1, **qs) }}">السابق</a>
+                {% else %}
+                    <span class="mute">السابق</span>
+                {% endif %}
+                <span class="info">صفحة {{ task_page }} من {{ task_total_pages }}</span>
+                {% if task_page < task_total_pages %}
+                    <a href="{{ url_for('supervisor_dashboard', page=task_page+1, **qs) }}">التالي</a>
+                {% else %}
+                    <span class="mute">التالي</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+</section>
+
+<script>
+(function(){
+    const SUP_URL_EVENT = {{ url_for('supervisor_event_tasks', event_id=0)|tojson }};
+    const SUP_URL_COMMITTEE = {{ url_for('supervisor_committee_tasks', name='__NAME__')|tojson }};
+
+    function escapeHtml(s){
+        if (s === null || s === undefined) return '—';
+        return String(s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function statusChip(status){
+        const cls = status === 'مكتملة' ? 'ok' : 'pend';
+        return '<span class="sup-chip ' + cls + '">' + escapeHtml(status) + '</span>';
+    }
+    function approvalChip(a){
+        if (a === 'approved') return '<span class="sup-chip ok">معتمد</span>';
+        if (a === 'rejected') return '<span class="sup-chip rej">مرفوض</span>';
+        return '<span class="sup-chip pend">قيد الاعتماد</span>';
+    }
+
+    function openWideModal(html){
+        if (typeof modal !== 'function') return;
+        modal(html);
+        const box = document.getElementById('box');
+        const modalEl = document.getElementById('modal');
+        if (box) box.classList.add('box--wide');
+        if (modalEl) modalEl.classList.add('modal-wide');
+        const strip = () => {
+            box && box.classList.remove('box--wide');
+            modalEl && modalEl.classList.remove('modal-wide');
+        };
+        if (modalEl) {
+            const observer = new MutationObserver(() => {
+                if (!modalEl.classList.contains('show')) { strip(); observer.disconnect(); }
+            });
+            observer.observe(modalEl, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+
+    function tasksTable(tasks){
+        if (!tasks || !tasks.length) {
+            return '<div class="sup-empty">لا توجد مهام في هذا السياق.</div>';
+        }
+        const rows = tasks.map(t => (
+            '<tr>' +
+            '<td>' + escapeHtml(t.title) + '</td>' +
+            '<td>' + escapeHtml(t.event_title) + '</td>' +
+            '<td>' + escapeHtml(t.assigned_user_name) + '</td>' +
+            '<td>' + escapeHtml(t.committee) + '</td>' +
+            '<td>' + escapeHtml(t.role) + '</td>' +
+            '<td><b>' + escapeHtml(t.points) + '</b></td>' +
+            '<td>' + escapeHtml(t.deadline) + '</td>' +
+            '<td>' + statusChip(t.status) + '</td>' +
+            '<td>' + approvalChip(t.approval_status) + '</td>' +
+            '</tr>'
+        )).join('');
+        return (
+            '<div class="table-wrapper"><table class="dashboard-table">' +
+            '<thead><tr>' +
+                '<th>المهمة</th><th>الفعالية</th><th>العضو</th><th>اللجنة</th>' +
+                '<th>الدور</th><th>النقاط</th><th>الموعد</th>' +
+                '<th>الحالة</th><th>الاعتماد</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody></table></div>'
+        );
+    }
+
+    function modalShell(headHtml, bodyHtml){
+        return (
+            '<div class="sup-modal-head">' +
+                '<div>' + headHtml + '</div>' +
+                '<button class="sup-modal-close" type="button" data-close aria-label="إغلاق">×</button>' +
+            '</div>' +
+            '<div class="sup-modal-body">' + bodyHtml + '</div>' +
+            '<div class="sup-modal-foot">' +
+                '<button class="btn btn-o" type="button" data-close>إغلاق</button>' +
+            '</div>'
+        );
+    }
+
+    async function loadEventDetail(eventId){
+        openWideModal(modalShell(
+            '<h3>تفاصيل الفعالية</h3><p>جارِ التحميل…</p>', ''
+        ));
+        try {
+            const url = SUP_URL_EVENT.replace(/\/0\/tasks\.json$/, '/' + eventId + '/tasks.json');
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const total = data.tasks.length;
+            const approved = data.tasks.filter(t => t.approval_status === 'approved').length;
+            const pct = total ? Math.round(100 * approved / total) : 0;
+            const dateStr = data.event.date ? data.event.date.substring(0,10) : '—';
+            const headHtml =
+                '<h3>' + escapeHtml(data.event.title) + '</h3>' +
+                '<p>تاريخ الفعالية: ' + escapeHtml(dateStr) +
+                ' · إجمالي المهام: <b>' + total + '</b>' +
+                ' · معتمد: <b>' + approved + '</b> (' + pct + '%)</p>';
+            openWideModal(modalShell(headHtml, tasksTable(data.tasks)));
+        } catch (e) {
+            openWideModal(modalShell(
+                '<h3>تعذّر التحميل</h3><p>حدث خطأ: ' + escapeHtml(e.message) + '</p>', ''
+            ));
+        }
+    }
+
+    async function loadCommitteeDetail(name){
+        openWideModal(modalShell(
+            '<h3>تفاصيل اللجنة</h3><p>جارِ التحميل…</p>', ''
+        ));
+        try {
+            const url = SUP_URL_COMMITTEE.replace('__NAME__', encodeURIComponent(name));
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const total = data.tasks.length;
+            const approved = data.tasks.filter(t => t.approval_status === 'approved').length;
+            const pct = total ? Math.round(100 * approved / total) : 0;
+            const points = data.committee.members.reduce((s, m) => s + (m.points || 0), 0);
+            const membersList = data.committee.members
+                .map(m => escapeHtml(m.name) + ' (<b>' + (m.points || 0) + '</b>)')
+                .join('، ');
+            const headHtml =
+                '<h3>' + escapeHtml(data.committee.name) + '</h3>' +
+                '<p>عدد الأعضاء: <b>' + data.committee.members.length + '</b>' +
+                ' · إجمالي النقاط: <b>' + points + '</b>' +
+                ' · إجمالي المهام: <b>' + total + '</b>' +
+                ' · معتمد: <b>' + approved + '</b> (' + pct + '%)</p>' +
+                '<p style="color:#6a7f91;font-size:12.5px;margin-top:6px">الأعضاء: ' +
+                (membersList || '—') + '</p>';
+            openWideModal(modalShell(headHtml, tasksTable(data.tasks)));
+        } catch (e) {
+            openWideModal(modalShell(
+                '<h3>تعذّر التحميل</h3><p>حدث خطأ: ' + escapeHtml(e.message) + '</p>', ''
+            ));
+        }
+    }
+
+    function openTaskDetail(payload){
+        const dl = (label, value) =>
+            '<dt>' + label + '</dt><dd>' + escapeHtml(value) + '</dd>';
+        const bodyHtml =
+            '<dl class="sup-detail-list">' +
+                dl('المهمة', payload.title) +
+                dl('الفعالية', payload.event) +
+                dl('العضو', payload.assigned_user) +
+                dl('اللجنة', payload.committee) +
+                dl('الدور', payload.role) +
+                dl('النقاط', payload.points) +
+                dl('الموعد', payload.deadline) +
+            '</dl>' +
+            '<div class="sup-row" style="gap:10px">' +
+                '<span>الحالة: ' + statusChip(payload.status) + '</span>' +
+                '<span>الاعتماد: ' + approvalChip(payload.approval_status) + '</span>' +
+            '</div>';
+        openWideModal(modalShell('<h3>تفاصيل المهمة</h3>', bodyHtml));
+    }
+
+    document.addEventListener('click', (e) => {
+        const evBtn = e.target.closest('[data-event-detail]');
+        if (evBtn) {
+            e.preventDefault();
+            loadEventDetail(evBtn.getAttribute('data-event-detail'));
+            return;
+        }
+        const comBtn = e.target.closest('[data-committee-detail]');
+        if (comBtn) {
+            e.preventDefault();
+            loadCommitteeDetail(comBtn.getAttribute('data-committee-detail'));
+            return;
+        }
+        const taskBtn = e.target.closest('[data-task-detail]');
+        if (taskBtn) {
+            e.preventDefault();
+            try {
+                const payload = JSON.parse(taskBtn.getAttribute('data-task'));
+                openTaskDetail(payload);
+            } catch (_) { /* ignore */ }
+        }
+    });
+})();
+</script>
+
+{% include "_footer.html" %}
+</body>
+</html>

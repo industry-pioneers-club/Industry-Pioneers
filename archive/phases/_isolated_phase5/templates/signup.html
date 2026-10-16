@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>إنشاء حساب | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<main class="lp">
+<form class="lc" id="signupForm" novalidate>
+    <h1>إنشاء حساب</h1>
+    <p id="signupError" style="color:#c0392b;font-size:14px;display:none"></p>
+
+    <label for="su-name">الاسم الكامل</label>
+    <input id="su-name" name="name" autocomplete="name" maxlength="120">
+
+    <label for="su-email">البريد الإلكتروني</label>
+    <input id="su-email" name="email" type="email" autocomplete="email" maxlength="120">
+
+    <label for="su-password">كلمة المرور</label>
+    <input id="su-password" name="password" type="password" autocomplete="new-password" minlength="8">
+    <p style="font-size:13px;color:#666;margin:4px 0 0">يجب أن تتكون من 8 أحرف على الأقل.</p>
+
+    <label for="su-invite">رمز الدعوة <span style="font-weight:400;color:#888">(اختياري — للأعضاء الرسميين)</span></label>
+    <input id="su-invite" name="invite_code" autocomplete="off">
+
+    <button class="btn" type="submit">إنشاء الحساب</button>
+
+    <p style="margin-top:20px;text-align:center">
+        لديك حساب بالفعل؟
+        <a href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+    </p>
+</form>
+</main>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+
+<title>لوحة تحكم المشرف الأكاديمي | نادي رواد الصناعة</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>لوحة تحكم المشرف الأكاديمي</h1>
+    <span class="sub">متابعة أداء النادي ونسبة إنجاز الفعاليات</span>
+    <a class="btn btn-o" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+</section>
+
+
+<section class="sec supervisor-dashboard">
+<div class="wrap">
+
+    <!-- الإحصائيات -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">الإحصائيات</h2>
+                <p class="dashboard-description">
+                    نظرة عامة على أداء النادي ونسبة إنجاز الفعاليات.
+                </p>
+            </div>
+        </div>
+
+
+        <div class="analytics-cards">
+
+            <div class="analytics-card">
+                <span>إجمالي الفعاليات</span>
+                <strong id="stat-total">—</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>الفعاليات المكتملة</span>
+                <strong id="stat-completed">—</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>الفعاليات القادمة</span>
+                <strong id="stat-upcoming">—</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>نسبة الإنجاز</span>
+                <strong id="stat-completion">—</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>إجمالي المقالات</span>
+                <strong id="stat-articles">—</strong>
+            </div>
+
+            <div class="analytics-card">
+                <span>عدد الرعاة</span>
+                <strong id="stat-sponsors">—</strong>
+            </div>
+
+        </div>
+
+
+        <div class="analytics-grid">
+
+            <div class="dashboard-card chart-card">
+                <h3>توزيع الفعاليات</h3>
+
+                <div class="chart-bars">
+
+                    <div class="chart-item">
+                        <span>مكتملة</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" id="chart-completed-fill" style="width:0%"></div>
+                        </div>
+                        <b id="chart-completed-label">0%</b>
+                    </div>
+
+                    <div class="chart-item">
+                        <span>قادمة</span>
+                        <div class="chart-track">
+                            <div class="chart-fill" id="chart-upcoming-fill" style="width:0%"></div>
+                        </div>
+                        <b id="chart-upcoming-label">0%</b>
+                    </div>
+
+                </div>
+            </div>
+
+
+            <div class="dashboard-card chart-card">
+                <h3>نسبة إنجاز الفعاليات</h3>
+
+                <div class="progress-chart">
+
+                    <div class="progress-circle">
+                        <span id="completion-circle">—</span>
+                    </div>
+
+                    <p id="completion-summary">جارِ تحميل البيانات...</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- تصدير التقارير -->
+    <div class="dashboard-section">
+
+        <div class="dashboard-heading">
+            <div>
+                <h2 class="st">تصدير التقارير</h2>
+                <p class="dashboard-description">
+                    تحميل تقارير مختصرة عن أداء النادي وإنجاز الفعاليات.
+                </p>
+            </div>
+        </div>
+
+
+        <div class="report-card">
+
+            <div>
+                <span class="report-icon">▣</span>
+
+                <div>
+                    <h3>تقرير أداء النادي</h3>
+                    <p>
+                        تقرير يتضمن إحصائيات أداء النادي ونسبة إنجاز الفعاليات.
+                    </p>
+                </div>
+            </div>
+
+            <button class="btn btn-o" id="exportReportBtn">
+                تحميل التقرير
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+</section>
+
+</body>
+</html>

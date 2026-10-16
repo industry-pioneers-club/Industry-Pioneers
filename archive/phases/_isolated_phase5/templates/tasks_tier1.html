@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>مهامي | نادي رواد الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/main_tier1.js') }}" defer></script>
+    <style>
+        .tasks-container { max-width: 980px; margin: 40px auto; padding: 0 20px; }
+        .task-card {
+            background: #fff;
+            padding: 20px 22px;
+            margin: 14px 0;
+            border-radius: 12px;
+            border-right: 5px solid #d99a35;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+        .task-head { display:flex; justify-content: space-between; align-items: flex-start; gap:16px; flex-wrap: wrap; }
+        .task-head h2 { color:#1b365d; margin:0 0 6px; font-size: 20px; }
+        .task-meta { color:#555; font-size: 14px; margin: 6px 0; line-height: 1.7; }
+        .task-meta b { color:#1b365d; }
+        .task-status {
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .task-status.in-progress { background:#fff3cd; color:#805d00; }
+        .task-status.completed  { background:#d4edda; color:#155724; }
+        .task-actions { margin-top: 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+        .task-actions select { padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit; font-size: 14px; }
+        .task-actions .btn-update {
+            background: #1b365d;
+            color: #fff;
+            border: 0;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+        }
+        .task-actions .btn-update:hover { background: #f39c12; }
+        .back-btn {
+            display: inline-block;
+            background: #1b365d;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 7px;
+            text-decoration: none;
+            font-weight: 700;
+            margin-top: 20px;
+        }
+        .back-btn:hover { background: #f39c12; }
+        .empty-state { text-align:center; color:#888; padding:40px 20px; }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>مهامي</h1>
+    <span class="sub">المهام المسندة إليك ضمن أنشطة النادي</span>
+</section>
+
+<main class="tasks-container">
+    {% for t in tasks %}
+    <section class="task-card" data-task-id="{{ t.id }}">
+        <div class="task-head">
+            <div>
+                <h2>{{ t.title }}</h2>
+                {% if t.event %}
+                <p class="task-meta"><b>الفعالية:</b> {{ t.event.title }}</p>
+                {% endif %}
+                <p class="task-meta">
+                    <b>النقاط:</b> {{ t.points }}
+                    {% if t.deadline %}
+                    &nbsp;·&nbsp; <b>موعد التسليم:</b> {{ t.deadline.isoformat() }}
+                    {% endif %}
+                </p>
+            </div>
+            <span class="task-status {{ 'completed' if t.status == 'مكتملة' else 'in-progress' }}" data-current-status>
+                {{ t.status }}
+            </span>
+        </div>
+
+        <div class="task-actions">
+            <label for="status-{{ t.id }}" style="font-weight:700;color:#1b365d">تحديث الحالة:</label>
+            <select id="status-{{ t.id }}" data-status-select>
+                <option value="قيد التنفيذ" {{ 'selected' if t.status == 'قيد التنفيذ' else '' }}>قيد التنفيذ</option>
+                <option value="مكتملة" {{ 'selected' if t.status == 'مكتملة' else '' }}>مكتملة</option>
+            </select>
+            <button type="button" class="btn-update" data-update-status="{{ t.id }}">تحديث</button>
+        </div>
+    </section>
+    {% else %}
+    <div class="empty-state">
+        <h2 style="color:#1b365d">لا توجد مهام مسندة إليك حالياً</h2>
+        <p>سيتم عرض المهام هنا عند قيام القائد بإسنادها إليك.</p>
+    </div>
+    {% endfor %}
+
+    <a class="back-btn" href="{{ url_for('member_profile') }}">العودة إلى لوحة العضو</a>
+</main>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>الشركاء والرعاة | نادي رواد الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+        <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+    <section class="banner">
+        <h1>الشركاء والرعاة</h1>
+        <span class="sub">شركاء النجاح الذين يدعمون رحلتنا</span>
+    </section>
+
+    <!-- قسم الرعاة -->
+    <section class="sec">
+        <div class="wrap">
+            <h2 class="st">الرعاة</h2>
+            <div class="logos">
+{% for sponsor in sponsors %}
+                <div class="lg">{% set src = sponsor.logo_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}<p>{{ sponsor.name }} — {{ sponsor.tier }}</p></div>
+{% else %}
+                <p class="empty">لا يوجد رعاة حالياً.</p>
+{% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <!-- قسم الشركاء السابقون -->
+    <section class="sec">
+        <div class="wrap">
+            <h2 class="st">الشركاء السابقون</h2>
+            <div class="logos">
+                {% set past_partners = [
+                    ('Image/5909072811534257936.jpg', 'BusinessHub'),
+                    ('Image/5909072811534257937.jpg', 'SPE KSA Section'),
+                    ('Image/5909072811534257960.jpg', 'JAZARI Ventures'),
+                    ('Image/5909072811534257959.jpg', 'سيغ')
+                ] %}
+                {% for path, name in past_partners %}
+                <div class="lg">
+                    {% set src = path|static_image %}
+                    {% if src %}<img src="{{ src }}" alt="{{ name }}">{% endif %}
+                    <p dir="ltr">{{ name }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+</body>
+</html>

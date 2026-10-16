@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل الدخول | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+<main class="lp"><form class="lc" id="loginForm" method="post" action="{{ url_for('login') }}" novalidate><h1>تسجيل الدخول</h1>{% if error %}<p>{{ error }}</p>{% endif %}<label for="id">الرقم الجامعي / البريد الإلكتروني</label><input id="id" name="email" autocomplete="username"><label for="pw">كلمة المرور</label><input id="pw" name="password" type="password" autocomplete="current-password"><button class="btn" type="submit">تسجيل الدخول</button><p style="margin-top:16px;text-align:center">ليس لديك حساب؟ <a href="{{ url_for('signup_form') }}">سجل الآن</a></p></form></main>
+</body>
+</html>

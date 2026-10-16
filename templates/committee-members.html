@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>أعضاء اللجنة | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+<style>
+    .cl-wrap{max-width:960px;margin:120px auto 60px;padding:0 20px;direction:rtl}
+    .cl-head{background:#fff;border-right:5px solid #f39c12;border-radius:12px;
+             padding:22px 26px;box-shadow:0 2px 10px rgba(10,25,38,.05);margin-bottom:24px}
+    .cl-head h1{color:#1b365d;margin:0 0 8px;font-size:22px;font-weight:800}
+    .cl-head p{color:#6a7f91;margin:0;font-size:14px;line-height:1.7}
+    .cl-switch{margin-top:10px;font-size:13px}
+    .cl-switch select{padding:6px 10px;border:1px solid #d6dee6;border-radius:8px;
+                       font:600 13px Tajawal,sans-serif;color:#1b365d;background:#fff}
+    .cl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+             gap:14px;margin:0 0 20px}
+    .cl-stat{background:#f7f9fc;border:1px solid #e6ecf2;border-radius:12px;padding:14px 16px}
+    .cl-stat span{display:block;color:#6a7f91;font-size:12.5px;font-weight:700;margin-bottom:4px}
+    .cl-stat strong{color:#1b365d;font-size:20px;font-weight:800}
+    .cl-stat.points strong{color:#f39c12}
+
+    .cl-section-head{display:flex;justify-content:space-between;align-items:center;
+                     margin-bottom:14px;flex-wrap:wrap;gap:10px}
+    .cl-section-head h2{margin:0;color:#1b365d;font-size:18px;font-weight:800}
+    .cl-add-btn{background:#f39c12;color:#fff;border:0;padding:9px 18px;border-radius:8px;
+                font:800 14px Tajawal,sans-serif;cursor:pointer;transition:filter .15s}
+    .cl-add-btn:hover{filter:brightness(1.07)}
+
+    .cl-card{background:#fff;border:1px solid #e6ecf2;border-radius:12px;
+             box-shadow:0 2px 10px rgba(10,25,38,.05);overflow:hidden}
+    table.cl-table{width:100%;border-collapse:collapse;background:#fff}
+    table.cl-table th{background:#fcfdfe;color:#1b365d;font-weight:800;font-size:13px;
+                      text-align:right;padding:12px 16px;border-bottom:1px solid #eef2f6}
+    table.cl-table td{padding:14px 16px;border-bottom:1px solid #f3f6f9;font-size:14px;color:#1b365d}
+    table.cl-table tr:last-child td{border-bottom:0}
+    .cl-points-pill{background:#fff5e5;color:#9a5a00;padding:3px 12px;border-radius:999px;
+                    font-weight:800;font-size:13px;font-variant-numeric:tabular-nums}
+    .cl-award-btn{background:transparent;color:#f39c12;border:1px solid #f39c12;
+                  padding:5px 14px;border-radius:999px;font:700 12.5px Tajawal,sans-serif;
+                  cursor:pointer;transition:background .15s,color .15s}
+    .cl-award-btn:hover{background:#f39c12;color:#fff}
+    .cl-empty{padding:40px 20px;text-align:center;color:#9fb3c4}
+    .cl-empty b{color:#1b365d;display:block;margin-bottom:6px;font-size:16px}
+
+    /* Compact modal styling scoped to this page */
+    #modal #box.cl-modal{width:min(540px,100%);max-height:85vh;overflow-y:auto;
+                         padding:22px 24px}
+    #modal #box.cl-modal .dashboard-form{gap:10px}
+    #modal #box.cl-modal .dashboard-form input,
+    #modal #box.cl-modal .dashboard-form select,
+    #modal #box.cl-modal .dashboard-form textarea{min-height:38px;padding:8px 12px;
+                                                   font-size:13.5px}
+    #modal #box.cl-modal .dashboard-form textarea{min-height:72px}
+    #modal #box.cl-modal .dashboard-form .btn,
+    #modal #box.cl-modal .dashboard-form .row .btn{height:38px;width:auto;flex:0 0 auto;
+                                                   align-self:flex-end;padding:0 20px;
+                                                   font-size:14px;border-radius:8px}
+    #modal #box.cl-modal .dashboard-form .row{justify-content:flex-end}
+
+    .cl-badge-leader{background:#f39c12;color:#fff;padding:2px 8px;border-radius:999px;
+                     font-size:11px;font-weight:700;margin-right:6px}
+
+    @media (max-width:600px){
+        .cl-wrap{margin-top:90px}
+        table.cl-table th:nth-child(2),
+        table.cl-table td:nth-child(2){display:none}
+    }
+</style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<div class="cl-wrap">
+    {% if committee %}
+    <div class="cl-head">
+        <h1>{{ committee.name }}</h1>
+        <p>
+            قائد اللجنة:
+            <b>{{ committee_leader.name if committee_leader else '— لم يُعيَّن بعد —' }}</b>
+            {% if committee.description %}
+            <br><span style="color:#6a7f91">{{ committee.description }}</span>
+            {% endif %}
+        </p>
+        {% if committees_managed and committees_managed|length > 1 %}
+        <div class="cl-switch">
+            <label>اختر اللجنة التي تريد إدارتها:
+                <select onchange="window.location.href = '{{ url_for('committee_leader_members_page') }}?committee_id=' + this.value">
+                    {% for c in committees_managed %}
+                    <option value="{{ c.id }}" {% if c.id == committee.id %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="cl-grid">
+        <div class="cl-stat">
+            <span>عدد الأعضاء</span>
+            <strong id="cl-members-count">{{ members|length }}</strong>
+        </div>
+        <div class="cl-stat points">
+            <span>إجمالي النقاط في اللجنة</span>
+            <strong id="cl-total-points">{{ members|sum(attribute='points') }}</strong>
+        </div>
+        <div class="cl-stat">
+            <span>عدد المهام الموزّعة</span>
+            <strong>—</strong>
+        </div>
+    </div>
+
+    <div class="cl-section-head">
+        <h2>أعضاء اللجنة</h2>
+        <button type="button" class="cl-add-btn" id="clAddMemberBtn"
+                data-committee-id="{{ committee.id }}">+ إضافة عضو</button>
+    </div>
+
+    <div class="cl-card">
+        {% if members %}
+        <table class="cl-table">
+            <thead>
+                <tr>
+                    <th>العضو</th>
+                    <th>البريد الإلكتروني</th>
+                    <th>النقاط الحالية</th>
+                    <th>الإجراء</th>
+                </tr>
+            </thead>
+            <tbody id="clMemberTbody">
+                {% for m in members %}
+                <tr data-member-id="{{ m.id }}" data-member-name="{{ m.name }}">
+                    <td>
+                        {% if committee.leader_user_id == m.id %}
+                        <span class="cl-badge-leader">قائد</span>
+                        {% endif %}
+                        {{ m.name }}
+                    </td>
+                    <td>{{ m.email }}</td>
+                    <td><span class="cl-points-pill" data-member-points>{{ m.points or 0 }}</span></td>
+                    <td>
+                        <button type="button" class="cl-award-btn"
+                                data-award-member="{{ m.id }}"
+                                data-member-name="{{ m.name }}"
+                                data-committee-id="{{ committee.id }}">
+                            + إضافة نقاط
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="cl-empty">
+            <b>لا يوجد أعضاء في اللجنة بعد</b>
+            اضغط «إضافة عضو» لإضافة أول عضو إلى لجنتك.
+        </div>
+        {% endif %}
+    </div>
+
+    {% else %}
+    <div class="cl-head">
+        <h1>لا توجد لجنة لإدارتها</h1>
+        <p>لم يتم تعيينك قائداً لأي لجنة بعد. يرجى التواصل مع قائد النادي.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modal = window.modal, toast = window.toast, closeModal = window.closeModal;
+    if (typeof modal !== 'function') {
+        console.error('[committee-leader] main.js helpers unavailable');
+        return;
+    }
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+        m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+    // Tag the shared #box so the compact .cl-modal CSS applies.
+    const applyScope = () => {
+        const box = document.getElementById('box');
+        const m = document.getElementById('modal');
+        if (!box || !m) return;
+        box.classList.add('cl-modal');
+        const obs = new MutationObserver(() => {
+            if (!m.classList.contains('show')) {
+                box.classList.remove('cl-modal');
+                obs.disconnect();
+            }
+        });
+        obs.observe(m, { attributes: true, attributeFilter: ['class'] });
+    };
+
+    async function postJSON(url, body) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','Accept':'application/json'},
+            body: JSON.stringify(body || {}),
+            credentials: 'same-origin',
+        });
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+        return {ok: res.ok, status: res.status, data};
+    }
+
+    /* ---- ADD MEMBER ---- */
+    document.getElementById('clAddMemberBtn')?.addEventListener('click', async (e) => {
+        const committeeId = e.currentTarget.dataset.committeeId;
+        try {
+            const res = await fetch(`/committee-leader/${committeeId}/eligible`,
+                                    {credentials: 'same-origin'});
+            if (!res.ok) { toast('تعذر تحميل الأعضاء'); return; }
+            const data = await res.json();
+            const eligible = data.eligible || [];
+            if (!eligible.length) {
+                toast('لا يوجد أعضاء مؤهلون للإضافة حالياً');
+                return;
+            }
+            const options = eligible.map(m =>
+                `<option value="${m.id}">${esc(m.name)} · ${esc(m.email)}</option>`
+            ).join('');
+            modal(`
+                <h3>إضافة عضو إلى اللجنة</h3>
+                <p style="color:#6a7f91;font-size:13px;margin:4px 0 12px">
+                    اختر عضواً من قائمة الأعضاء المسجّلين غير المعيّنين في أي لجنة.
+                </p>
+                <div class="dashboard-form">
+                    <label>العضو *</label>
+                    <select id="clPickUser" required>
+                        <option value="">— اختر عضواً —</option>
+                        ${options}
+                    </select>
+                    <div class="row" style="margin-top:14px">
+                        <button class="btn btn-o" id="clConfirmAdd">إضافة</button>
+                        <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                    </div>
+                </div>
+            `);
+            applyScope();
+            const btn = document.getElementById('clConfirmAdd');
+            btn.onclick = async () => {
+                const uid = document.getElementById('clPickUser').value;
+                if (!uid) return toast('اختر عضواً');
+                btn.disabled = true;    // guard against double-submit
+                const r = await postJSON(`/committee-leader/${committeeId}/add-member`,
+                                         {user_id: Number(uid)});
+                if (!r.ok) {
+                    btn.disabled = false;
+                    return toast(r.data.error || 'فشل الإضافة');
+                }
+                closeModal();
+                toast('تم إضافة العضو إلى اللجنة');
+                location.reload();
+            };
+        } catch (_) { toast('تعذر الاتصال بالخادم'); }
+    });
+
+    /* ---- AWARD POINTS ---- */
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-award-member]');
+        if (!btn) return;
+        const memberId = btn.dataset.awardMember;
+        const memberName = btn.dataset.memberName;
+        const committeeId = btn.dataset.committeeId;
+        modal(`
+            <h3>إضافة نقاط</h3>
+            <div class="dashboard-form">
+                <label>العضو</label>
+                <input id="clAwardName" type="text" value="${esc(memberName)}" disabled>
+
+                <label>عدد النقاط *</label>
+                <input id="clAwardPoints" type="number" min="1" max="1000"
+                       step="1" placeholder="مثال: 15" required>
+
+                <label>وصف المهمة *</label>
+                <textarea id="clAwardDesc" rows="3" maxlength="500"
+                          placeholder="مثال: صمّم بوستر الفعالية" required></textarea>
+
+                <div class="row" style="margin-top:14px">
+                    <button class="btn btn-o" id="clConfirmAward">إضافة النقاط</button>
+                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
+                </div>
+            </div>
+        `);
+        applyScope();
+        const btnConfirm = document.getElementById('clConfirmAward');
+        btnConfirm.onclick = async () => {
+            const points = parseInt(document.getElementById('clAwardPoints').value, 10);
+            const description = document.getElementById('clAwardDesc').value.trim();
+            if (!points || points <= 0) return toast('أدخل عدد نقاط موجب');
+            if (!description) return toast('وصف المهمة مطلوب');
+            btnConfirm.disabled = true;     // guard against double-award
+            const r = await postJSON(
+                `/committee-leader/${committeeId}/award-points`,
+                {user_id: Number(memberId), points, description},
+            );
+            if (!r.ok) {
+                btnConfirm.disabled = false;
+                return toast(r.data.error || 'فشل تسجيل النقاط');
+            }
+            // Live update the row's points pill without a full reload.
+            const row = document.querySelector(`tr[data-member-id="${memberId}"]`);
+            const pill = row?.querySelector('[data-member-points]');
+            if (pill) pill.textContent = r.data.new_total;
+            const totalEl = document.getElementById('cl-total-points');
+            if (totalEl) totalEl.textContent =
+                (parseInt(totalEl.textContent, 10) || 0) + (r.data.awarded || 0);
+            closeModal();
+            toast(`تم منح ${r.data.awarded} نقطة لـ ${memberName}`);
+        };
+    });
+});
+</script>
+{% include "_footer.html" %}
+</body>
+</html>

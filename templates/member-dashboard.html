@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>لوحة تحكم العضو | نادي رواد الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+    <style>
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: #f4f7fb;
+            margin: 0; padding: 0;
+            direction: rtl; text-align: right;
+            color: #1b365d;
+        }
+
+        /* ============================================================
+           Member dashboard — scoped to this page via .md-* classes so
+           other pages are not affected.
+           ============================================================ */
+        .md-container{
+            max-width: 1120px;
+            margin: 110px auto 50px;
+            padding: 0 20px;
+        }
+
+        /* ---- Welcome banner — bnr.png covers the whole card; a navy
+               gradient overlays the right side (RTL = text side) so the
+               copy stays legible and fades into the industrial scene. ---- */
+        .md-welcome{
+            position: relative;
+            border-radius: 16px;
+            box-shadow: 0 2px 14px rgba(10,25,38,.06);
+            padding: 32px 36px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            min-height: 180px;
+            display: flex;
+            align-items: center;
+            background:
+                linear-gradient(to left, #08243b 0%,
+                                         rgba(8,36,59,0.9)  35%,
+                                         rgba(8,36,59,0.3)  70%,
+                                         rgba(8,36,59,0)   100%),
+                url("{{ url_for('static', filename='Image/bnr.png') }}") center/cover no-repeat;
+        }
+        .md-welcome-text{
+            position:relative; z-index:1;
+            width: 100%;
+            box-sizing: border-box;
+            color: #fff;
+            text-align: right;
+        }
+        .md-welcome h1{
+            margin:0 0 10px;
+            color:#fff;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+        .md-welcome p{
+            margin:0 0 18px;
+            color: rgba(255,255,255,.86);
+            font-size: 15px;
+            line-height: 1.7;
+            max-width: 560px;
+            margin-inline-start: auto;
+        }
+        .md-welcome-actions{
+            display:flex; gap:10px; flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+        .md-welcome-actions a{
+            display:inline-flex; align-items:center; gap:8px;
+            padding: 10px 20px; border-radius: 10px;
+            font: 800 14px Tajawal, sans-serif;
+            text-decoration: none;
+            transition: filter .15s, background .15s, color .15s, border-color .15s;
+        }
+        .md-welcome-actions .md-welcome-primary{
+            background: #f39c12; color: #0f2033;
+            border: 1px solid #f39c12;
+        }
+        .md-welcome-actions .md-welcome-primary:hover{filter: brightness(1.07)}
+        .md-welcome-actions .md-welcome-ghost{
+            background: transparent; color: #fff;
+            border: 1px solid rgba(255,255,255,.6);
+        }
+        .md-welcome-actions .md-welcome-ghost:hover{
+            background: rgba(255,255,255,.1); border-color:#fff;
+        }
+        .md-welcome-actions svg{width:16px;height:16px;flex-shrink:0}
+
+        /* ---- 4-up profile stat cards ---- */
+        .md-stats{
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+        .md-stat{
+            background:#fff;
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: 0 2px 10px rgba(10,25,38,.05);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+        .md-stat-icon{
+            width: 46px; height: 46px; border-radius: 12px;
+            display:flex; align-items:center; justify-content:center;
+            background: #fff5e5; color: #f39c12; flex-shrink:0;
+        }
+        .md-stat-icon svg{ width:22px; height:22px; }
+        .md-stat-body{ min-width:0; flex: 1; }
+        .md-stat-body span{
+            display:block; color:#6a7f91; font-size: 12.5px; font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .md-stat-body strong{
+            display:block; color:#1b365d; font-size: 18px; font-weight: 800;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .md-stat.points .md-stat-icon{ background: #fff5e5; color:#f39c12; }
+        .md-stat.points strong{ color:#f39c12; font-size: 24px; }
+        .md-stat.points strong small{ color:#9fb3c4; font-size: 12px;
+                                       font-weight: 700; margin-right:4px; }
+
+        /* ---- Interests banner card ---- */
+        .md-int-banner{
+            display:grid;
+            grid-template-columns: 150px 1fr auto;
+            gap: 22px;
+            align-items: center;
+            background: linear-gradient(135deg, #fff8ec 0%, #fff5e5 100%);
+            border: 1px solid #fbe4b8;
+            border-radius: 16px;
+            padding: 20px 24px;
+            margin-bottom: 22px;
+            box-shadow: 0 2px 10px rgba(10,25,38,.04);
+        }
+        .md-int-illus{
+            width: 150px; height: 118px;
+            display:flex; align-items:center; justify-content:center;
+            background:#fff; border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(243,156,18,.15);
+        }
+        .md-int-illus svg{ width: 110px; height: 100px; }
+        .md-int-text h3{
+            margin:0 0 6px; color:#1b365d; font-size: 18px; font-weight: 800;
+            display:flex; align-items:center; gap:8px;
+        }
+        .md-int-text h3 .md-int-chev{
+            display:inline-block; color:#f39c12; font-size: 20px;
+        }
+        .md-int-text p{
+            margin:0; color:#6a7f91; font-size: 14px; line-height: 1.7;
+        }
+        .md-int-cta{
+            display:inline-flex; align-items:center; gap:8px;
+            background:#f39c12; color:#fff; border:0;
+            padding: 11px 22px; border-radius: 10px;
+            font: 800 14.5px Tajawal, sans-serif; cursor:pointer;
+            transition: filter .15s, transform .1s;
+            text-decoration:none; white-space:nowrap;
+        }
+        .md-int-cta:hover{filter: brightness(1.06)}
+        .md-int-cta:active{transform: translateY(1px)}
+        .md-int-cta svg{width:16px;height:16px;flex-shrink:0}
+        .md-int-count{
+            background:#fff; color:#f39c12; padding: 2px 9px;
+            border-radius: 999px; font: 800 12px Tajawal, sans-serif;
+        }
+
+        /* ---- Activity log ---- */
+        .md-section{
+            background:#fff; border-radius: 14px;
+            padding: 20px 24px;
+            box-shadow: 0 2px 10px rgba(10,25,38,.05);
+            margin-bottom: 22px;
+        }
+        .md-section-head{
+            display:flex; justify-content:space-between; align-items:center;
+            gap:10px; margin-bottom: 10px;
+        }
+        .md-section-head h3{
+            margin:0; color:#1b365d; font-size: 18px; font-weight: 800;
+            display:flex; align-items:center; gap:8px;
+        }
+        .md-section-head h3 .md-sec-icon{
+            width:24px; height:24px; border-radius:999px;
+            background:#eef2f6; color:#1b365d;
+            display:inline-flex; align-items:center; justify-content:center;
+        }
+        .md-section-head h3 .md-sec-icon svg{width:14px;height:14px}
+        .md-section-head .md-see-all{
+            color:#f39c12; font-weight:800; font-size:13px; text-decoration:none;
+            background: transparent; border: 0; cursor: pointer;
+            font-family: Tajawal, sans-serif;
+            padding: 4px 2px;
+            display: inline-flex; align-items: center; gap: 4px;
+        }
+        .md-section-head .md-see-all:hover{color:#1b365d}
+        /* Hide rows past the first 4 while the list is collapsed. */
+        .md-activity.md-collapsed li[data-row-index]:not([data-row-index="0"]):not([data-row-index="1"]):not([data-row-index="2"]):not([data-row-index="3"]){
+            display: none;
+        }
+        .md-activity{ list-style:none; padding:0; margin:0 }
+        .md-activity li{
+            display:flex; align-items:center; justify-content:space-between;
+            gap:14px; padding:14px 10px; border-top: 1px solid #eef2f6;
+            flex-wrap:wrap;
+        }
+        .md-activity li:first-child{border-top:0}
+        .md-activity-left{display:flex; gap:12px; align-items:flex-start; min-width:0; flex:1}
+        .md-dot{
+            width:28px; height:28px; border-radius:999px; flex-shrink:0;
+            display:flex; align-items:center; justify-content:center;
+            font-size:14px; font-weight:800;
+        }
+        .md-dot.ok{background:#eafaf1; color:#1e7a4b}
+        .md-dot.rej{background:#fdecec; color:#c0392b}
+        .md-dot.info{background:#dbe8f5; color:#1b365d}
+        .md-dot.gold{background:#fff5e5; color:#f39c12}
+        .md-activity-body{min-width:0}
+        .md-activity-body strong{
+            display:block; color:#1b365d; font-size: 14px; font-weight: 800;
+            margin-bottom: 2px;
+        }
+        .md-activity-body strong.ok{color:#1e7a4b}
+        .md-activity-body strong.rej{color:#c0392b}
+        .md-activity-body strong.gold{color:#f39c12}
+        .md-activity-body small{color:#6a7f91; font-size:12.5px}
+        .md-activity-body .md-sub{color:#6a7f91; font-size:13px; line-height:1.5;
+                                   display:block;}
+        .md-pts-pill{
+            background:#eafaf1; color:#1e7a4b;
+            padding: 4px 14px; border-radius: 999px;
+            font: 800 13px Tajawal, sans-serif; white-space:nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .md-pts-pill.neg{background:#fdecec; color:#c0392b}
+        .md-pts-pill.zero{background:transparent; color:#9fb3c4;
+                           font-weight:600}
+        .md-empty{color:#9fb3c4; padding:14px 0; text-align:center}
+
+        /* ---- Services grid ---- */
+        .md-services-head{
+            display:flex; align-items:center; gap:10px;
+            margin: 14px 0 14px;
+        }
+        .md-services-head h3{
+            margin:0; color:#1b365d; font-size: 20px; font-weight: 800;
+        }
+        .md-services-head .md-sec-icon{
+            width:28px; height:28px; border-radius:8px;
+            background:#eef2f6; color:#1b365d;
+            display:inline-flex; align-items:center; justify-content:center;
+        }
+        .md-services-head .md-sec-icon svg{width:16px;height:16px}
+        .md-services-head p{
+            color:#6a7f91; margin:4px 0 0; font-size:13.5px;
+        }
+        .md-grid{
+            display:grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 18px;
+        }
+        .md-card{
+            background:#fff; border-radius:14px;
+            box-shadow: 0 2px 10px rgba(10,25,38,.05);
+            padding: 22px 22px 18px;
+            display:flex; flex-direction:column;
+            transition: transform .18s ease, box-shadow .18s ease;
+        }
+        .md-card:hover{
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(10,25,38,.09);
+        }
+        .md-card-icon{
+            width: 44px; height: 44px; border-radius: 12px;
+            background:#eef2f6; color:#1b365d;
+            display:flex; align-items:center; justify-content:center;
+            margin-bottom: 14px;
+        }
+        .md-card.gold .md-card-icon{background:#fff5e5; color:#f39c12}
+        .md-card-icon svg{width:22px;height:22px}
+        .md-card h4{
+            margin: 0 0 8px; color:#1b365d; font-size:17px; font-weight:800;
+        }
+        .md-card p{
+            color:#6a7f91; font-size: 13.5px; line-height: 1.75;
+            margin: 0 0 16px; flex: 1;
+        }
+        .md-card-btn{
+            align-self:flex-start;
+            display:inline-flex; align-items:center; gap:6px;
+            background:#1b365d; color:#fff;
+            padding: 9px 18px; border-radius: 10px;
+            font: 800 13.5px Tajawal, sans-serif;
+            text-decoration:none;
+            transition: background .15s, color .15s;
+        }
+        .md-card-btn:hover{background:#f39c12}
+        .md-card-btn svg{width:14px;height:14px}
+
+        /* ---- Interests modal (scoped — reuses shared #modal shell) ---- */
+        #modal #box.int-modal{
+            width:min(560px,100%); max-height:85vh; overflow-y:auto;
+            padding:22px 24px;
+            animation:intFadeIn .18s ease-out;
+        }
+        @keyframes intFadeIn{
+            from{opacity:0;transform:translateY(6px);}
+            to  {opacity:1;transform:translateY(0);}
+        }
+        #modal #box.int-modal h3{
+            margin:0 0 6px;color:#1b365d;font-size:20px;font-weight:800;
+        }
+        #modal #box.int-modal p.int-sub{
+            margin:0 0 14px;color:#6a7f91;font-size:13.5px;line-height:1.6;
+        }
+        #modal #box.int-modal .int-chips{
+            display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;
+        }
+        #modal #box.int-modal .int-chip{
+            display:inline-flex;align-items:center;gap:6px;
+            padding:7px 14px;border-radius:999px;
+            background:#fff;color:#1b365d;
+            border:1px solid #e6ecf2;cursor:pointer;
+            font:700 13px Tajawal,sans-serif;
+            transition:background .15s,border-color .15s,color .15s;
+            user-select:none;
+        }
+        #modal #box.int-modal .int-chip:hover{border-color:#f39c12;color:#f39c12}
+        #modal #box.int-modal .int-chip .int-check{
+            opacity:0;width:14px;height:14px;transition:opacity .15s;flex-shrink:0;
+        }
+        #modal #box.int-modal .int-chip.on{
+            background:rgba(243,156,18,.14);
+            border-color:#f39c12;color:#9a5a00;
+        }
+        #modal #box.int-modal .int-chip.on .int-check{opacity:1}
+        #modal #box.int-modal .int-chip input{display:none}
+        #modal #box.int-modal .int-foot{
+            display:flex;justify-content:flex-end;gap:10px;
+            padding-top:14px;border-top:1px solid #eef2f6;flex-wrap:wrap;
+        }
+        #modal #box.int-modal .int-btn{
+            height:38px;padding:0 20px;border-radius:8px;
+            font:800 14px Tajawal,sans-serif;cursor:pointer;border:0;
+            transition:filter .15s,background .15s,color .15s;
+        }
+        #modal #box.int-modal .int-btn.primary{background:#f39c12;color:#fff}
+        #modal #box.int-modal .int-btn.primary:hover{filter:brightness(1.07)}
+        #modal #box.int-modal .int-btn.primary:disabled{
+            background:#d6dee6;color:#6a7f91;cursor:not-allowed;
+        }
+        #modal #box.int-modal .int-btn.ghost{
+            background:#fff;color:#6a7f91;border:1px solid #d6dee6;
+        }
+        #modal #box.int-modal .int-btn.ghost:hover{color:#1b365d;border-color:#1b365d}
+        body.int-locked{overflow:hidden}
+
+        /* ---- Responsive ---- */
+        @media (max-width: 980px){
+            .md-stats{grid-template-columns: repeat(2, 1fr)}
+            .md-grid{grid-template-columns: repeat(2, 1fr)}
+            .md-welcome-text{padding-left: 35%}
+        }
+        @media (max-width: 720px){
+            .md-container{margin-top: 90px}
+            .md-welcome::before{display:none}
+            .md-welcome-text{padding-left: 0}
+            .md-int-banner{grid-template-columns: 1fr; text-align:center}
+            .md-int-illus{margin: 0 auto}
+            .md-grid{grid-template-columns: 1fr}
+        }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<div class="md-container">
+
+    <!-- =========================================
+         Welcome banner — bnr.png with navy gradient overlay.
+         Hand/person illustrations removed per spec.
+         ========================================= -->
+    <div class="md-welcome">
+        <div class="md-welcome-text">
+            <h1>مرحباً بك، {{ current_user.name }}</h1>
+            <p>كل خطوة تخطوها اليوم تقرّبك من مستقبل صناعي مميز.</p>
+            <div class="md-welcome-actions">
+                <a class="md-welcome-primary" href="{{ url_for('events_page') }}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    استكشف الفعاليات
+                </a>
+                <a class="md-welcome-ghost" href="{{ url_for('member_tasks') }}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="3" y="4" width="18" height="18" rx="2"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    مهامي الحالية
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================
+         4-up stats (preserving every real value)
+         ========================================= -->
+    <div class="md-stats">
+        <!-- Points -->
+        <div class="md-stat points">
+            <div class="md-stat-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12 2l2.6 6.26L21 9.27l-5 4.87L17.18 21 12 17.77 6.82 21 8 14.14l-5-4.87 6.4-1.01L12 2z"/>
+                </svg>
+            </div>
+            <div class="md-stat-body">
+                <span>رصيد النقاط</span>
+                <strong>{{ points }}<small>نقطة</small></strong>
+            </div>
+        </div>
+
+        <!-- Committee -->
+        <div class="md-stat">
+            <div class="md-stat-icon" style="background:#eef2f6;color:#1b365d">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 010 7.75"/>
+                    <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
+                </svg>
+            </div>
+            <div class="md-stat-body">
+                <span>اللجنة</span>
+                <strong>{{ committee if committee else 'غير محدّدة' }}</strong>
+            </div>
+        </div>
+
+        <!-- Role -->
+        <div class="md-stat">
+            <div class="md-stat-icon" style="background:#eef2f6;color:#1b365d">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </div>
+            <div class="md-stat-body">
+                <span>الدور</span>
+                <strong>
+                    {# Committee leadership comes from the DB relationship
+                       (Committee.leader_user_id == current_user.id), not
+                       from the user's role label — so a plain 'member' who
+                       was promoted to lead a committee reads as "قائد لجنة",
+                       while the club-wide 'leader'/'supervisor' labels stay
+                       as before. #}
+                    {% if led_committees %}قائد لجنة
+                    {% elif current_user.role == 'leader' %}قائد
+                    {% elif current_user.role == 'supervisor' %}مشرف أكاديمي
+                    {% elif current_user.role == 'member' %}عضو
+                    {% else %}زائر{% endif %}
+                </strong>
+            </div>
+        </div>
+
+        <!-- Email -->
+        <div class="md-stat">
+            <div class="md-stat-icon" style="background:#eef2f6;color:#1b365d">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 4h16v16H4z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+            </div>
+            <div class="md-stat-body">
+                <span>البريد الإلكتروني</span>
+                <strong style="font-size:14px">{{ current_user.email }}</strong>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================
+         Interests banner — opens the existing modal
+         ========================================= -->
+    <div class="md-int-banner"
+         data-interest-choices='{{ interest_choices|tojson }}'
+         data-interest-selected='{{ user_interests|tojson }}'>
+        <div class="md-int-illus" aria-hidden="true">
+            <svg viewBox="0 0 110 100" fill="none">
+                <!-- paper/checklist with gear -->
+                <rect x="12" y="10" width="68" height="78" rx="10" fill="#fff" stroke="#d6dee6" stroke-width="2"/>
+                <rect x="22" y="24" width="14" height="12" rx="3" fill="#eef2f6" stroke="#1b365d" stroke-width="1.5"/>
+                <path d="M25 30l3 3 5-6" stroke="#1b365d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                <rect x="42" y="26" width="30" height="4" rx="2" fill="#dbe8f5"/>
+                <rect x="22" y="46" width="14" height="12" rx="3" fill="#eef2f6" stroke="#1b365d" stroke-width="1.5"/>
+                <path d="M25 52l3 3 5-6" stroke="#1b365d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                <rect x="42" y="48" width="30" height="4" rx="2" fill="#dbe8f5"/>
+                <rect x="22" y="68" width="14" height="10" rx="3" fill="#f7f9fc" stroke="#d6dee6" stroke-width="1.5"/>
+                <rect x="42" y="70" width="24" height="4" rx="2" fill="#dbe8f5"/>
+                <!-- gear -->
+                <circle cx="86" cy="74" r="14" fill="#f39c12"/>
+                <circle cx="86" cy="74" r="5" fill="#fff"/>
+                <g stroke="#f39c12" stroke-width="4" stroke-linecap="round">
+                    <line x1="86" y1="56" x2="86" y2="62"/>
+                    <line x1="86" y1="86" x2="86" y2="92"/>
+                    <line x1="68" y1="74" x2="74" y2="74"/>
+                    <line x1="98" y1="74" x2="104" y2="74"/>
+                </g>
+            </svg>
+        </div>
+        <div class="md-int-text">
+            <h3><span class="md-int-chev">⚙</span> اهتماماتي</h3>
+            <p>اختر المجالات التي تهمك لنرسل لك إشعارات عن الفعاليات والأنشطة المناسبة.</p>
+        </div>
+        <button type="button" id="openInterestsModal" class="md-int-cta">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"></path>
+            </svg>
+            تعديل الاهتمامات
+            {% if user_interests %}
+            <span class="md-int-count">{{ user_interests|length }}</span>
+            {% endif %}
+        </button>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const modal = window.modal, toast = window.toast, closeModal = window.closeModal;
+        if (typeof modal !== 'function') return;
+
+        const trigger = document.getElementById('openInterestsModal');
+        const row = trigger?.closest('.md-int-banner');
+        if (!trigger || !row) return;
+
+        let saved = [];
+        let choices = [];
+        try { choices = JSON.parse(row.dataset.interestChoices || '[]'); } catch (_) {}
+        try { saved   = JSON.parse(row.dataset.interestSelected || '[]'); } catch (_) {}
+
+        const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+            m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+        const checkSvg = '<svg class="int-check" viewBox="0 0 24 24" fill="none" ' +
+            'stroke="currentColor" stroke-width="3" stroke-linecap="round" ' +
+            'stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+        function buildChipHtml(selectedSet) {
+            return choices.map(choice => {
+                const on = selectedSet.has(choice.toLowerCase());
+                return (
+                    '<label class="int-chip ' + (on ? 'on' : '') + '">' +
+                        checkSvg +
+                        '<input type="checkbox" value="' + esc(choice) + '" ' +
+                            (on ? 'checked' : '') + '>' +
+                        '<span>' + esc(choice) + '</span>' +
+                    '</label>'
+                );
+            }).join('');
+        }
+
+        trigger.addEventListener('click', () => {
+            const currentSelected = new Set((saved || []).map(s => (s || '').toLowerCase()));
+            modal(
+                '<h3>اهتماماتي</h3>' +
+                '<p class="int-sub">اختر المواضيع التي تهمك — سنُشعرك عند نشر فعاليات تطابقها.</p>' +
+                '<div class="int-chips">' + buildChipHtml(currentSelected) + '</div>' +
+                '<div class="int-foot">' +
+                    '<button type="button" class="int-btn ghost" data-close>إلغاء</button>' +
+                    '<button type="button" class="int-btn primary" id="intSaveBtn">حفظ الاهتمامات</button>' +
+                '</div>'
+            );
+            const box = document.getElementById('box');
+            const modalEl = document.getElementById('modal');
+            box?.classList.add('int-modal');
+            document.body.classList.add('int-locked');
+            const obs = new MutationObserver(() => {
+                if (!modalEl.classList.contains('show')) {
+                    box?.classList.remove('int-modal');
+                    document.body.classList.remove('int-locked');
+                    obs.disconnect();
+                }
+            });
+            obs.observe(modalEl, { attributes: true, attributeFilter: ['class'] });
+
+            box.querySelectorAll('.int-chip').forEach(chip => {
+                const cb = chip.querySelector('input');
+                chip.addEventListener('click', (e) => {
+                    if (e.target.tagName !== 'INPUT') {
+                        e.preventDefault();
+                        cb.checked = !cb.checked;
+                    }
+                    chip.classList.toggle('on', cb.checked);
+                });
+            });
+
+            const saveBtn = box.querySelector('#intSaveBtn');
+            saveBtn.addEventListener('click', async () => {
+                const picked = Array.from(box.querySelectorAll('.int-chip input:checked'))
+                    .map(cb => cb.value);
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'جارِ الحفظ…';
+                try {
+                    const res = await fetch('/member/interests', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json','Accept':'application/json'},
+                        body: JSON.stringify({interests: picked}),
+                        credentials: 'same-origin',
+                    });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    saved = picked.map(s => s.toLowerCase());
+                    row.dataset.interestSelected = JSON.stringify(saved);
+                    let badge = trigger.querySelector('.md-int-count');
+                    if (saved.length) {
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'md-int-count';
+                            trigger.appendChild(badge);
+                        }
+                        badge.textContent = saved.length;
+                    } else if (badge) {
+                        badge.remove();
+                    }
+                    closeModal();
+                    toast('تم حفظ الاهتمامات ✓');
+                } catch (_) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'حفظ الاهتمامات';
+                    toast('تعذر حفظ الاهتمامات');
+                }
+            });
+        });
+    });
+    </script>
+
+    <!-- =========================================
+         Activity log (real data) — 4 shown by default, toggle to see all.
+         ========================================= -->
+    <div class="md-section">
+        <div class="md-section-head">
+            <h3>
+                <span class="md-sec-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12,6 12,12 16,14"/>
+                    </svg>
+                </span>
+                سجل النشاط
+            </h3>
+            {% if activity and activity|length > 4 %}
+            <button type="button" class="md-see-all" id="toggleActivity"
+                    data-collapsed-label="عرض الكل ←"
+                    data-expanded-label="عرض أقل ↑"
+                    aria-expanded="false">عرض الكل ←</button>
+            {% endif %}
+        </div>
+        {% if activity %}
+        <ul class="md-activity {% if activity|length > 4 %}md-collapsed{% endif %}" id="activityList">
+            {% for a in activity %}
+            {% set is_pos = a.points_delta > 0 %}
+            {% set is_neg = a.points_delta < 0 %}
+            <li data-row-index="{{ loop.index0 }}">
+                <div class="md-activity-left">
+                    {% if a.action == 'task_approved' %}
+                        <div class="md-dot ok">✓</div>
+                        <div class="md-activity-body">
+                            <strong class="ok">تم اعتماد المهمة</strong>
+                            {% if a.task %}<span class="md-sub">{{ a.task.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'task_rejected' %}
+                        <div class="md-dot rej">✗</div>
+                        <div class="md-activity-body">
+                            <strong class="rej">تم رفض المهمة</strong>
+                            {% if a.task %}<span class="md-sub">{{ a.task.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'article_approved' %}
+                        <div class="md-dot ok">✓</div>
+                        <div class="md-activity-body">
+                            <strong class="ok">تم اعتماد المقال</strong>
+                            {% if a.article %}<span class="md-sub">{{ a.article.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'initiative_approved' %}
+                        <div class="md-dot ok">✓</div>
+                        <div class="md-activity-body">
+                            <strong class="ok">تم اعتماد المبادرة</strong>
+                            {% if a.initiative %}<span class="md-sub">{{ a.initiative.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'event_attended' %}
+                        <div class="md-dot info">●</div>
+                        <div class="md-activity-body">
+                            <strong>حضور فعالية</strong>
+                            {% if a.event %}<span class="md-sub">{{ a.event.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'event_organized' %}
+                        <div class="md-dot info">◆</div>
+                        <div class="md-activity-body">
+                            <strong>تنظيم فعالية</strong>
+                            {% if a.event %}<span class="md-sub">{{ a.event.title }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% elif a.action == 'manual_award' %}
+                        <div class="md-dot gold">★</div>
+                        <div class="md-activity-body">
+                            <strong class="gold">منحة قائد اللجنة</strong>
+                            {% if a.description %}<span class="md-sub">{{ a.description }}</span>{% endif %}
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% else %}
+                        <div class="md-dot info">●</div>
+                        <div class="md-activity-body">
+                            <strong>{{ a.action }}</strong>
+                            <small>{{ a.recorded_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% endif %}
+                </div>
+                {% if is_pos %}
+                <span class="md-pts-pill">+{{ a.points_delta }} نقطة</span>
+                {% elif is_neg %}
+                <span class="md-pts-pill neg">{{ a.points_delta }} نقطة</span>
+                {% else %}
+                <span class="md-pts-pill zero">—</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="md-empty">لا توجد نشاطات مسجلة بعد. سيُحدَّث السجل تلقائياً عند اعتماد المهام.</p>
+        {% endif %}
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const btn = document.getElementById('toggleActivity');
+        const list = document.getElementById('activityList');
+        if (!btn || !list) return;
+        btn.addEventListener('click', function () {
+            const collapsed = list.classList.toggle('md-collapsed');
+            btn.textContent = collapsed
+                ? (btn.dataset.collapsedLabel || 'عرض الكل ←')
+                : (btn.dataset.expandedLabel  || 'عرض أقل ↑');
+            btn.setAttribute('aria-expanded', String(!collapsed));
+            if (!collapsed) {
+                // Scrolling the newly-revealed rows into view is friendlier
+                // than silently expanding below the fold.
+                list.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+    });
+    </script>
+
+    <!-- =========================================
+         Services grid
+         ========================================= -->
+    <div class="md-services-head">
+        <span class="md-sec-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+            </svg>
+        </span>
+        <div>
+            <h3>أقسام لوحة التحكم والخدمات</h3>
+            <p>استخدم هذه الأدوات لإدارة مهامك وتطوير مشاركتك في النادي.</p>
+        </div>
+    </div>
+
+    <div class="md-grid">
+        {% if led_committees %}
+        <div class="md-card gold">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 010 7.75"/>
+                    <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
+                </svg>
+            </div>
+            <h4>أعضاء اللجنة</h4>
+            <p>
+                اطّلع على
+                {% if led_committees|length == 1 %}
+                لجنة <b>{{ led_committees[0].name }}</b> وتابع أعضاءها وتعرّف على مهامهم.
+                {% else %}
+                اللجان التي تقودها ({{ led_committees|length }}) وأدِر أعضاءها.
+                {% endif %}
+            </p>
+            <a href="{{ url_for('committee_leader_members_page') }}" class="md-card-btn">
+                أعضاء اللجنة
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </a>
+        </div>
+        {% endif %}
+
+        <div class="md-card">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+            </div>
+            <h4>قائمة المهام وسجل الإنجازات</h4>
+            <p>استعرض المهام المطلوبة منك وقم بتحديث حالتها إلى تمّ أول بأول.</p>
+            <a href="{{ url_for('member_tasks') }}" class="md-card-btn">
+                عرض المهام
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+        </div>
+
+        <div class="md-card gold">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+            </div>
+            <h4>دليل النقاط (Points Guide)</h4>
+            <p>تعرف على الطرق والأنشطة المختلفة التي يمكنك اكتساب النقاط من خلالها في النادي.</p>
+            <a href="{{ url_for('points_guide') }}" class="md-card-btn">
+                استعراض الدليل
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+        </div>
+
+        <div class="md-card gold">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="18,8 12,14 6,8"/>
+                    <polyline points="18,16 12,22 6,16"/>
+                </svg>
+            </div>
+            <h4>لوحة الشرف (Leaderboard)</h4>
+            <p>شاهد قائمة الأعضاء الأكثر تفاعلاً ونقاطاً على مستوى لجان النادي.</p>
+            <a href="{{ url_for('member_leaderboard') }}" class="md-card-btn">
+                عرض لوحة الشرف
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+        </div>
+
+        <div class="md-card">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+            </div>
+            <h4>رفع مقال لجريدة الصناعة</h4>
+            <p>اكتب مقالك الخاص في مجالك الأكاديمي أو المهني واقترب للانتشار والاعتماد.</p>
+            <a href="{{ url_for('upload_article') }}" class="md-card-btn">
+                رفع مقال جديد
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+        </div>
+
+        <div class="md-card">
+            <div class="md-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="22" y1="2" x2="11" y2="13"/>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+            </div>
+            <h4>تقديم مبادرة</h4>
+            <p>اقترح مبادرة لتطوير أنشطة النادي — تُمنح نقاط المبادرة بعد اعتماد القائد.</p>
+            <a href="{{ url_for('initiatives_page') }}" class="md-card-btn">
+                تقديم مبادرة
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </a>
+        </div>
+    </div>
+</div>
+{% include "_footer.html" %}
+</body>
+</html>

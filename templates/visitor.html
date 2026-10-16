@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>بوابة الزوار والأعضاء | نادي رواد الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+
+    <style>
+        /* Shared navbar login button (kept from original) */
+        .login-btn {
+            background-color: transparent;
+            border: 2px solid #fff;
+            padding: 8px 20px;
+            border-radius: 20px;
+            color: white;
+            text-decoration: none;
+            font-weight: 700;
+            transition: all 0.3s;
+        }
+        .login-btn:hover { background-color: #f39c12; border-color: #f39c12; }
+
+        /* Keep page tall enough that the footer sits at the bottom
+           even when only the two selection cards are shown. */
+        body { min-height: 100vh; display: flex; flex-direction: column; }
+        .vp-main { flex: 1 0 auto; }
+
+        /* ===== Visitor-portal: scoped to this page only ===== */
+        .vp-wrap {
+            max-width: 1000px;
+            margin: 32px auto 48px;
+            padding: 0 20px;
+        }
+
+        /* ---- Step 1: two selection cards ---- */
+        .vp-choice-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px;
+        }
+        @media (max-width: 720px) { .vp-choice-grid { grid-template-columns: 1fr; gap: 16px; } }
+
+        .vp-card {
+            background: #fff;
+            border: 1px solid #e6ecf2;
+            border-radius: 14px;
+            padding: 32px 26px 28px;
+            box-shadow: 0 4px 14px rgba(10, 25, 38, 0.06);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+        }
+        .vp-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 14px 30px rgba(10, 25, 38, 0.12);
+            border-color: #f39c12;
+        }
+        .vp-card-icon {
+            width: 68px; height: 68px;
+            border-radius: 50%;
+            background: rgba(245, 166, 80, 0.14);
+            color: #f39c12;
+            display: grid;
+            place-items: center;
+            margin-bottom: 16px;
+        }
+        .vp-card-icon svg { width: 32px; height: 32px; }
+        .vp-card h3 {
+            color: #1b365d;
+            font-size: 19px;
+            font-weight: 800;
+            margin: 0 0 10px;
+            line-height: 1.5;
+        }
+        .vp-card p {
+            color: #4a6174;
+            font-size: 14.5px;
+            line-height: 1.8;
+            margin: 0 0 20px;
+            min-height: calc(1.8em * 2);
+        }
+        .vp-card button {
+            background: #1b365d;
+            color: #fff;
+            border: 0;
+            padding: 11px 28px;
+            border-radius: 999px;
+            font: 700 15px Tajawal, sans-serif;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .vp-card button:hover { background: #f39c12; }
+        .vp-card button:active { transform: translateY(1px); }
+
+        /* ---- Step 2: form panel (replaces the choice grid) ---- */
+        .vp-panel {
+            max-width: 640px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 28px 30px;
+            border-radius: 14px;
+            box-shadow: 0 4px 14px rgba(10, 25, 38, 0.06);
+        }
+        .vp-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f39c12;
+        }
+        .vp-panel-head h2 { color: #1b365d; margin: 0; font-size: 22px; }
+        .vp-back {
+            background: transparent;
+            color: #1b365d;
+            border: 1px solid #d9e2eb;
+            padding: 6px 16px;
+            border-radius: 999px;
+            font: 700 13px Tajawal, sans-serif;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
+        }
+        .vp-back:hover { background: #1b365d; color: #fff; border-color: #1b365d; }
+
+        /* ---- Form fields (kept visually consistent with the original) ---- */
+        .form-group { margin-bottom: 18px; text-align: right; }
+        .form-group label { display: block; margin-bottom: 7px; font-weight: 700; color: #1b365d; }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px 12px;
+            border: 1px solid #d9e2eb;
+            border-radius: 8px;
+            font-family: 'Tajawal', sans-serif;
+            font-size: 15.5px;
+            background: #fff;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: 2px solid #f39c12;
+            border-color: transparent;
+        }
+        .submit-btn {
+            background: #1b365d;
+            color: #fff;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.3s;
+        }
+        .submit-btn:hover { background: #f39c12; }
+
+        /* Toggle helper (hides form panels until one is picked) */
+        [hidden] { display: none !important; }
+
+        @media (max-width: 520px) {
+            .vp-panel { padding: 22px 20px; }
+        }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>بوابة الزوار والأعضاء</h1>
+    <span class="sub">اختر الخدمة التي ترغب بها — سيُعرض لك النموذج المناسب فقط</span>
+</section>
+
+<main class="vp-main">
+<div class="vp-wrap">
+
+    <!-- STEP 1: two selection cards -->
+    <section class="vp-choice-grid" id="vpChoice">
+        <article class="vp-card">
+            <div class="vp-card-icon" aria-hidden="true">
+                <!-- Calendar icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+            </div>
+            <h3>تسجيل الزوار في الفعاليات</h3>
+            <p>سجل حضورك في فعاليات نادي رواد الصناعة.</p>
+            <button type="button" data-vp-open="event">تسجيل زائر</button>
+        </article>
+
+        <article class="vp-card">
+            <div class="vp-card-icon" aria-hidden="true">
+                <!-- Users icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+            </div>
+            <h3>طلب الانضمام لعضوية النادي</h3>
+            <p>قدم طلبك للانضمام إلى نادي رواد الصناعة.</p>
+            <button type="button" data-vp-open="membership">طلب العضوية</button>
+        </article>
+    </section>
+
+    <!-- STEP 2a: event visitor registration (hidden until picked) -->
+    <section class="vp-panel" id="vpPanelEvent" hidden>
+        <div class="vp-panel-head">
+            <h2>تسجيل الزوار في الفعاليات</h2>
+            <button type="button" class="vp-back" data-vp-back>← العودة للاختيارات</button>
+        </div>
+        <p id="eventFormMessage" style="display:none;padding:12px 16px;border-radius:8px;margin-bottom:14px;font-weight:700"></p>
+        <form id="eventRegForm" method="POST" novalidate>
+            <div class="form-group">
+                <label for="visitor-name">الاسم الكامل</label>
+                <input type="text" id="visitor-name" name="name" maxlength="120" placeholder="أدخل اسمك الكامل" required>
+            </div>
+            <div class="form-group">
+                <label for="visitor-email">البريد الإلكتروني</label>
+                <input type="email" id="visitor-email" name="email" maxlength="120" placeholder="example@email.com" required>
+            </div>
+            <div class="form-group">
+                <label for="visitor-phone">رقم الجوال</label>
+                <input type="tel" id="visitor-phone" name="phone" maxlength="40" placeholder="05xxxxxxxx">
+            </div>
+            <div class="form-group">
+                <label for="event-select">اختر الفعالية</label>
+                <select id="event-select" name="event_id" required>
+{% for event in events %}
+                    <option value="{{ event.id }}">{{ event.title }}</option>
+{% else %}
+                    <option value="">لا توجد فعاليات عامة</option>
+{% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="submit-btn">تسجيل في الفعالية</button>
+        </form>
+    </section>
+
+    <!-- STEP 2b: membership application (hidden until picked) -->
+    <section class="vp-panel" id="vpPanelMembership" hidden>
+        <div class="vp-panel-head">
+            <h2>طلب انضمام لعضوية النادي</h2>
+            <button type="button" class="vp-back" data-vp-back>← العودة للاختيارات</button>
+        </div>
+        <p id="membershipFormMessage" style="display:none;padding:12px 16px;border-radius:8px;margin-bottom:14px;font-weight:700"></p>
+        <form id="membershipForm" method="POST" novalidate>
+            <div class="form-group">
+                <label for="member-name">الاسم الكامل</label>
+                <input type="text" id="member-name" name="name" maxlength="120" placeholder="أدخل اسمك الكامل" required>
+            </div>
+            <div class="form-group">
+                <label for="member-id">الرقم الجامعي</label>
+                <input type="text" id="member-id" name="student_id" maxlength="50" placeholder="أدخل رقمك الجامعي" required>
+            </div>
+            <div class="form-group">
+                <label for="member-major">التخصص الأكاديمي</label>
+                <input type="text" id="member-major" name="major" maxlength="120" placeholder="أدخل تخصصك الأكاديمي" required>
+            </div>
+            <div class="form-group">
+                <label for="member-email">البريد الإلكتروني</label>
+                <input type="email" id="member-email" name="email" maxlength="120" placeholder="example@email.com">
+                <small style="color:#666">اختياري — يستخدمه القائد للتواصل معك عند قبول الطلب.</small>
+            </div>
+            <div class="form-group">
+                <label for="member-reason">لماذا تريد الانضمام لنادي رواد الصناعة؟</label>
+                <textarea id="member-reason" name="reason" rows="4" maxlength="2000" placeholder="اكتب نبذة بسيطة عن سبب رغبتك بالانضمام"></textarea>
+            </div>
+            <button type="submit" class="submit-btn">إرسال طلب الانضمام</button>
+        </form>
+    </section>
+
+</div>
+</main>
+
+<script>
+// Switch between the choice grid and the two form panels. Preserves user
+// input when toggling back and forth (form state is kept in DOM, not reset).
+(function () {
+    const choice = document.getElementById('vpChoice');
+    const panels = {
+        event: document.getElementById('vpPanelEvent'),
+        membership: document.getElementById('vpPanelMembership'),
+    };
+
+    const show = (which) => {
+        choice.hidden = (which !== null);
+        panels.event.hidden = (which !== 'event');
+        panels.membership.hidden = (which !== 'membership');
+        if (which) {
+            // Scroll the panel into view and focus the first field,
+            // without stealing focus from screen readers already on the page.
+            panels[which].scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const first = panels[which].querySelector('input, select, textarea');
+            if (first) setTimeout(() => first.focus({ preventScroll: true }), 300);
+        } else {
+            choice.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
+
+    document.querySelectorAll('[data-vp-open]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            show(btn.dataset.vpOpen);
+        });
+    });
+    document.querySelectorAll('[data-vp-back]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            show(null);
+        });
+    });
+
+    // Safety: a stray Enter key inside a text input inside the hidden
+    // panel shouldn't submit the OTHER panel's form. Since each form is a
+    // separate <form> element and only one panel is visible at a time
+    // (hidden attribute removes layout AND prevents submission via UI),
+    // no extra guarding is required.
+})();
+</script>
+{% include "_footer.html" %}
+</body>
+</html>

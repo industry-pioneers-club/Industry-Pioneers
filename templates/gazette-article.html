@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ article.title }} | جريدة الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+<style>
+    .ga-container { max-width: 820px; margin: 110px auto 60px; padding: 0 20px; }
+    .ga-eyebrow { display:inline-block; background:#f39c12; color:#1a1a1a; padding:4px 14px; border-radius:999px; font-weight:700; font-size:12.5px; }
+    .ga-title { color:#1b365d; font-size: clamp(26px, 3.2vw, 36px); font-weight:800; margin:14px 0 8px; line-height:1.4; }
+    .ga-meta { color:#6a7f91; font-size:14px; margin:0 0 24px; display:flex; gap:16px; flex-wrap:wrap; }
+    .ga-meta b { color:#1b365d; font-weight:700; }
+    .ga-hero { margin: 24px 0; border-radius: 14px; overflow:hidden; background:#eef2f6; }
+    .ga-hero img { display:block; width:100%; height:auto; max-height: 480px; object-fit: cover; }
+    .ga-body {
+        background:#fff;
+        padding: 28px 30px;
+        border-radius: 14px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        line-height: 2;
+        font-size: 16px;
+        color: #2b3e51;
+        /* Preserve line breaks + paragraphs from member input, without
+           rendering any submitted HTML — body uses Jinja autoescape. */
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+    .ga-actions { display:flex; gap:12px; margin-top: 22px; flex-wrap:wrap; }
+    .ga-btn {
+        display:inline-block; background:#1b365d; color:#fff; padding:10px 22px;
+        border-radius:7px; text-decoration:none; font-weight:700; font-size:14.5px;
+    }
+    .ga-btn:hover { background:#f39c12; }
+    .ga-btn.secondary { background:transparent; color:#1b365d; border:2px solid #1b365d; padding:8px 20px; }
+    .ga-btn.secondary:hover { background:#1b365d; color:#fff; }
+    @media (max-width: 680px){
+        .ga-container { margin-top: 90px; padding: 0 14px; }
+        .ga-body { padding: 22px 20px; }
+    }
+</style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<main class="ga-container">
+    {% if article.author_sector %}
+    <span class="ga-eyebrow">{{ article.author_sector }}</span>
+    {% endif %}
+    <h1 class="ga-title">{{ article.title }}</h1>
+    <p class="ga-meta">
+        {% if article.author_name %}<span><b>الكاتب:</b> {{ article.author_name }}</span>{% endif %}
+        {% if article.date_published %}<span><b>التاريخ:</b> {{ article.date_published|shortdate }}</span>{% endif %}
+    </p>
+
+    {% set src = article.image_path|static_image %}
+    {% if src %}
+    <div class="ga-hero"><img src="{{ src }}" alt="{{ article.title }}"></div>
+    {% endif %}
+
+    <article class="ga-body">{{ article.content if article.content else 'لا يوجد محتوى منشور لهذا المقال.' }}</article>
+
+    <div class="ga-actions">
+        <a class="ga-btn" href="{{ url_for('gazette_page') }}">← العودة إلى الجريدة</a>
+        {% if current_user.is_authenticated %}
+        <button class="ga-btn secondary" type="button" data-article-id="{{ article.id }}">
+            ♡ أعجبني (<span>{{ article.likes_count }}</span>)
+        </button>
+        {% endif %}
+    </div>
+</main>
+{% include "_footer.html" %}
+</body>
+</html>

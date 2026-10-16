@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الفعاليات | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+<style>
+    /* ===== Phase 6 — event-card countdown + capacity badges ===== */
+    .eb ul{list-style:none;padding:0;margin:0;color:#4a5d6a;font-size:13px}
+    .ev-meta{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0}
+    .ev-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+             font-size:12px;font-weight:700;line-height:1.4}
+    .ev-chip.cap{background:#eafaf1;color:#1e7a4b}
+    .ev-chip.cap.few{background:#fff5e5;color:#9a5a00}
+    .ev-chip.cap.full{background:#fdecec;color:#721c24}
+    .ev-chip.cap.inf{background:#eef2f6;color:#1b365d}
+    .ev-chip.cd{background:#dbe8f5;color:#1b365d;font-variant-numeric:tabular-nums}
+    .ev-chip.cd.urgent{background:#fff3cd;color:#805d00}
+    .ev-chip.cd.closed{background:#f8d7da;color:#721c24}
+    /* Compact details link — pinned to the bottom of every card for alignment. */
+    .ev-link{
+        align-self:flex-start;
+        margin-top:auto;
+        display:inline-flex;align-items:center;gap:4px;
+        padding:5px 12px;border-radius:999px;
+        background:transparent;color:#f39c12;
+        border:1px solid rgba(243,156,18,.35);
+        font-size:12.5px;font-weight:700;line-height:1;
+        text-decoration:none;
+        transition:background .15s ease,color .15s ease,border-color .15s ease;
+    }
+    .ev-link:hover{background:#f39c12;color:#fff;border-color:#f39c12}
+</style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+<section class="banner"><h1>الفعاليات</h1><span class="sub">اكتشف فعاليات النادي وسجّل مشاركتك</span></section>
+<section class="sec"><div class="wrap"><div class="bar"><input id="q" type="search" placeholder="ابحث عن فعالية..."><button class="chip on">الكل</button><button class="chip">ورش</button><button class="chip">زيارات</button><button class="chip">ملتقيات</button><button class="chip">مسابقات</button></div>
+<h2 class="st">الفعاليات القادمة</h2><div class="grid" id="upcoming">
+{% for event in upcoming %}
+{% set deadline_iso = (event.registration_deadline or event.date).isoformat() if (event.registration_deadline or event.date) else '' %}
+{% set src = event.image_path|static_image %}
+<article class="ev"
+         data-event-id="{{ event.id }}"
+         data-event-start="{{ event.date.isoformat() if event.date else '' }}"
+         data-reg-deadline="{{ deadline_iso }}"
+         data-event-capacity="{{ event.capacity if event.capacity is not none else '' }}">
+    <div class="ph {% if not src %}no-img{% endif %}">{% if src %}<img src="{{ src }}" alt="{{ event.title }}" loading="lazy">{% endif %}</div>
+    <div class="eb">
+        <h3>{{ event.title }}</h3>
+        <ul><li><b>التاريخ:</b> {{ event.date|shortdate }}</li></ul>
+        <div class="ev-meta">
+            <span class="ev-chip cd" data-countdown="reg">...</span>
+            <span class="ev-chip cap" data-capacity>...</span>
+        </div>
+        <a class="ev-link" href="{{ url_for('event_detail_page', event_id=event.id) }}">تفاصيل والتسجيل ←</a>
+    </div>
+</article>
+{% else %}
+<p class="empty">لا توجد فعاليات قادمة.</p>
+{% endfor %}
+</div>
+<h2 class="st" style="margin-top:56px">الفعاليات السابقة</h2><div class="grid" id="previous">
+{% for event in previous %}
+{% set src = event.image_path|static_image %}
+<article class="ev"
+         data-event-id="{{ event.id }}"
+         data-event-start="{{ event.date.isoformat() if event.date else '' }}"
+         data-reg-deadline=""
+         data-event-capacity="">
+    <div class="ph {% if not src %}no-img{% endif %}">{% if src %}<img src="{{ src }}" alt="{{ event.title }}" loading="lazy">{% endif %}</div>
+    <div class="eb">
+        <h3>{{ event.title }}</h3>
+        <ul><li><b>التاريخ:</b> {{ event.date|shortdate }}</li></ul>
+        <div class="ev-meta" style="margin-top:auto"><span class="ev-chip cd closed">انتهت الفعالية</span></div>
+    </div>
+</article>
+{% else %}
+<p class="empty">لا توجد فعاليات سابقة.</p>
+{% endfor %}
+</div></div></section>
+{% include "_footer.html" %}
+</body>
+</html>

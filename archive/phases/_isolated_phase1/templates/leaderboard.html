@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>لوحة الشرف | نادي رواد الصناعة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    <style>
+        .lb-container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+        .lb-card {
+            background: #fff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+            overflow-x: auto;
+        }
+        .lb-table { width: 100%; border-collapse: collapse; text-align: right; }
+        .lb-table th, .lb-table td { padding: 14px 16px; border-bottom: 1px solid #eee; }
+        .lb-table th { background: #1b365d; color: #fff; font-weight: 700; }
+        .lb-table tr:hover { background: #f9fafb; }
+        .lb-rank { font-weight: 800; color: #f39c12; }
+        .lb-badge {
+            background: #fff3cd;
+            color: #805d00;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+        .lb-note { color: #666; margin-top: 14px; font-size: 14px; }
+        .back-btn {
+            display: inline-block;
+            background: #1b365d;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 7px;
+            text-decoration: none;
+            font-weight: 700;
+            margin-top: 20px;
+        }
+        .back-btn:hover { background: #f39c12; }
+    </style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>لوحة الشرف</h1>
+    <span class="sub">أعضاء نادي رواد الصناعة ومساهماتهم</span>
+</section>
+
+<main class="lb-container">
+    <div class="lb-card">
+        <table class="lb-table">
+            <thead>
+                <tr>
+                    <th>الترتيب</th>
+                    <th>اسم العضو</th>
+                    <th>الصفة</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in members %}
+                <tr>
+                    <td class="lb-rank">#{{ loop.index }}</td>
+                    <td>{{ member.name }}</td>
+                    <td><span class="lb-badge">عضو</span></td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align:center;color:#888">لا يوجد أعضاء مسجلون حتى الآن.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <p class="lb-note">سيتم عرض ترتيب الأعضاء بالنقاط بعد ربط نظام النقاط بقاعدة البيانات.</p>
+    </div>
+
+    <a class="back-btn" href="{{ url_for('member_profile') }}">العودة إلى لوحة العضو</a>
+</main>
+</body>
+</html>

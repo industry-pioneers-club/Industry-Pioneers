@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الرئيسية | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<!-- ============ HERO ============ -->
+<section class="home-hero" style="--h-hero-img: url('{{ url_for('static', filename='Image/hero.png') }}');">
+    <div class="home-hero-wrap">
+        <h1>
+            <span>نُمكّن الكفاءات...</span>
+            <span>نبتكر الحلول...</span>
+            <span class="h-accent">ونقود مستقبل الصناعة</span>
+        </h1>
+        <p>
+            {{ club_identity.description if club_identity else 'نادي رواد الصناعة منصة طلابية في جامعة طيبة تجمع مختلف التخصصات لتعريفهم بواقع القطاع الصناعي، من خلال رحلة متكاملة تبدأ باكتشاف الفرص والمهارات، مرورًا بمعايشة مواقع العمل وصولًا إلى تقديم حلول ابتكارية ومشاريع تطبيقية.' }}
+        </p>
+        <div class="home-hero-cta">
+            <a class="h-btn-primary" href="{{ url_for('events_page') }}">
+                <span>استكشف فعالياتنا</span>
+                <span>←</span>
+            </a>
+            {% if current_user.is_authenticated %}
+            <a class="h-btn-ghost" href="{{ url_for('dashboard') }}">لوحتي</a>
+            {% else %}
+            <a class="h-btn-ghost" href="{{ url_for('login_form') }}">انضم إلى النادي</a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="home-hero-dots">
+        <span class="on">01</span>
+        <span>02</span>
+        <span>03</span>
+    </div>
+</section>
+
+
+<!-- ============ VISION / MISSION ============ -->
+<section class="home-sec" style="background:#f6f9fc;">
+    <div class="home-sec-wrap">
+        <h2 class="home-sec-title">{{ club_identity.name if club_identity else 'نادي رواد الصناعة' }}</h2>
+        <p class="home-sec-lead">
+            منصة طلابية جامعية تربط بين قاعات الدراسة ومواقع الصناعة، وتبني جسوراً حقيقية بين الأكاديميا والقطاع الإنتاجي.
+        </p>
+
+        {% if club_identity %}
+        <div class="home-vm home-reveal">
+            <div class="home-vm-card">
+                <div class="home-vm-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+                <h3>رؤية النادي</h3>
+                <p>{{ club_identity.vision }}</p>
+            </div>
+            <div class="home-vm-card">
+                <div class="home-vm-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                </div>
+                <h3>رسالة النادي</h3>
+                <p>{{ club_identity.mission }}</p>
+            </div>
+        </div>
+        {% else %}
+        <p class="empty" style="text-align:center;color:#6a7f91">لم تُضف هوية النادي بعد.</p>
+        {% endif %}
+    </div>
+</section>
+
+
+<!-- ============ EVENTS ============ -->
+<section class="home-sec" style="background:#fff;">
+    <div class="home-sec-wrap">
+        <h2 class="home-sec-title">فعالياتنا القادمة</h2>
+        <p class="home-sec-lead">
+            زيارات ميدانية ولقاءات متخصصة ويوم مفتوح للمصنع — نحوّل المعرفة النظرية إلى تجربة واقعية.
+        </p>
+
+        <div class="home-events-grid">
+            {% for event in events[:3] %}
+            <article class="home-event-card home-reveal">
+                <div class="home-event-img">
+                    {% set src = event.image_path|static_image %}
+                    {% if src %}<img src="{{ src }}" alt="{{ event.title }}">{% endif %}
+                    {% if event.date %}
+                    <div class="home-event-date">
+                        <span class="d">{{ event.date.strftime('%d') }}</span>
+                        <span class="m">{{ event.date.strftime('%b') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="home-event-body">
+                    <h3>{{ event.title }}</h3>
+                    <p class="home-event-meta">
+                        <b>التاريخ:</b> {{ event.date|shortdate }}
+                    </p>
+                    <a class="home-event-link" href="{{ url_for('events_page') }}">
+                        <span>عرض التفاصيل</span>
+                        <span>←</span>
+                    </a>
+                </div>
+            </article>
+            {% else %}
+            <p class="empty" style="text-align:center;grid-column:1/-1;color:#6a7f91">لا توجد فعاليات عامة حالياً.</p>
+            {% endfor %}
+        </div>
+
+        {% if events|length > 3 %}
+        <div class="home-events-more">
+            <a href="{{ url_for('events_page') }}">عرض جميع الفعاليات ←</a>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+
+<!-- ============ ARTICLES (editorial: featured + 2 small) ============ -->
+<section class="home-sec" style="background:#f6f9fc;">
+    <div class="home-sec-wrap">
+        <h2 class="home-sec-title">جريدة الصناعة</h2>
+        <p class="home-sec-lead">
+            أحدث المقالات التي يكتبها أعضاء النادي حول القطاع الصناعي والمهارات التطبيقية.
+        </p>
+
+        {% if articles %}
+        <div class="home-articles-top">
+            <a href="{{ url_for('gazette_page') }}">عرض جميع المقالات ←</a>
+        </div>
+
+        <div class="home-articles">
+            {# Featured = newest approved article #}
+            {% set featured = articles[0] %}
+            <a class="home-article-featured home-reveal"
+               href="{{ url_for('gazette_page') }}#article-{{ featured.id }}">
+                {% set fsrc = featured.image_path|static_image %}
+                {% if fsrc %}<img src="{{ fsrc }}" alt="{{ featured.title }}">{% endif %}
+                <div class="home-article-featured-body">
+                    {% if featured.author_sector %}
+                    <span class="home-article-tag">{{ featured.author_sector }}</span>
+                    {% endif %}
+                    <h3>{{ featured.title }}</h3>
+                    <p class="home-article-featured-meta">
+                        <span><b>بقلم:</b> {{ featured.author_name }}</span>
+                        <span><b>التاريخ:</b> {{ featured.date_published|shortdate }}</span>
+                    </p>
+                    <span class="home-article-featured-link">
+                        <span>اقرأ المقال</span>
+                        <span>←</span>
+                    </span>
+                </div>
+            </a>
+
+            {# Next two articles in a side-by-side column #}
+            {% set rest = articles[1:3] %}
+            {% if rest %}
+            <div class="home-article-small-col">
+                {% for article in rest %}
+                <a class="home-article-small home-reveal"
+                   href="{{ url_for('gazette_page') }}#article-{{ article.id }}">
+                    <div class="home-article-small-img">
+                        {% set src = article.image_path|static_image %}
+                        {% if src %}<img src="{{ src }}" alt="{{ article.title }}">{% endif %}
+                    </div>
+                    <div class="home-article-small-body">
+                        <h3>{{ article.title }}</h3>
+                        <p class="home-article-small-date">
+                            <b>التاريخ:</b> {{ article.date_published|shortdate }}
+                        </p>
+                        <span class="home-article-small-link">
+                            <span>اقرأ المقال</span>
+                            <span>←</span>
+                        </span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="empty" style="text-align:center;color:#6a7f91">لا توجد مقالات حالياً.</p>
+        {% endif %}
+    </div>
+</section>
+
+
+<!-- ============ SPONSORS (RTL marquee carousel) ============ -->
+<section class="home-sponsors" style="--h-sponsor-bg: url('{{ url_for('static', filename='Image/hero.png') }}');">
+    <div class="home-sponsors-head">
+        <h2>شركاؤنا من القطاع</h2>
+    </div>
+
+    {% if sponsors %}
+    <div class="home-carousel" id="homeCarousel" aria-label="شركاء النادي">
+        <button class="home-carousel-ctrl home-carousel-prev" type="button" aria-label="السابق">‹</button>
+        <div class="home-carousel-track" id="homeCarouselTrack">
+            {# Two copies for seamless RTL loop #}
+            {% for sponsor in sponsors %}
+            <div class="home-carousel-item">
+                {% set src = sponsor.logo_path|static_image %}
+                {% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}
+                <p>{{ sponsor.name }}<small>{{ sponsor.tier }}</small></p>
+            </div>
+            {% endfor %}
+            {% for sponsor in sponsors %}
+            <div class="home-carousel-item" aria-hidden="true">
+                {% set src = sponsor.logo_path|static_image %}
+                {% if src %}<img src="{{ src }}" alt="">{% endif %}
+                <p>{{ sponsor.name }}<small>{{ sponsor.tier }}</small></p>
+            </div>
+            {% endfor %}
+        </div>
+        <button class="home-carousel-ctrl home-carousel-next" type="button" aria-label="التالي">›</button>
+    </div>
+    {% else %}
+    <p class="empty" style="text-align:center;color:#cdd8e2">لا يوجد رعاة حالياً.</p>
+    {% endif %}
+</section>
+
+
+<!-- ============ JOIN (minimal) ============ -->
+<section class="home-join">
+    <div class="home-join-wrap home-reveal">
+        <h2>انضم إلى نادي رواد الصناعة</h2>
+        <p>
+            كن جزءاً من مجتمع طلابي يربط البيئة الأكاديمية بالقطاع الصناعي من خلال فعاليات ميدانية،
+            مهام تطبيقية، ومشاركات تنشرها بصفتك عضواً معتمداً في النادي.
+        </p>
+        {% if current_user.is_authenticated %}
+        <a class="home-join-cta" href="{{ url_for('dashboard') }}">الذهاب إلى لوحتي</a>
+        {% else %}
+        <a class="home-join-cta" href="{{ url_for('visitor_portal') }}">انضم الآن</a>
+        {% endif %}
+    </div>
+</section>
+
+
+<!-- ============ FOOTER ============ -->
+<footer class="home-footer">
+    <div class="home-footer-wrap">
+
+        <div class="home-footer-brand">
+            <div class="logos">
+                <img src="{{ url_for('static', filename='Image/club-logo.png') }}" alt="نادي رواد الصناعة">
+                <img src="{{ url_for('static', filename='Image/taibah-logo.png') }}" alt="جامعة طيبة">
+            </div>
+            <p>
+                {{ club_identity.name if club_identity else 'نادي رواد الصناعة' }} — جامعة طيبة.
+                منصة طلابية تربط بين البيئة الأكاديمية والقطاع الصناعي.
+            </p>
+        </div>
+
+        <div>
+            <h4>روابط سريعة</h4>
+            <ul>
+                <li><a href="{{ url_for('home') }}">الرئيسية</a></li>
+                <li><a href="{{ url_for('about_page') }}">عن النادي</a></li>
+                <li><a href="{{ url_for('events_page') }}">الفعاليات</a></li>
+                <li><a href="{{ url_for('gazette_page') }}">جريدة الصناعة</a></li>
+                <li><a href="{{ url_for('partners_page') }}">الرعاة والشركاء</a></li>
+            </ul>
+        </div>
+
+        <div>
+            <h4>انضم إلينا</h4>
+            <ul>
+                {% if current_user.is_authenticated %}
+                <li><a href="{{ url_for('dashboard') }}">لوحتي</a></li>
+                <li><a href="{{ url_for('logout') }}">تسجيل الخروج</a></li>
+                {% else %}
+                <li><a href="{{ url_for('login_form') }}">تسجيل الدخول</a></li>
+                <li><a href="{{ url_for('visitor_portal') }}">طلب العضوية</a></li>
+                {% endif %}
+            </ul>
+        </div>
+
+        <div>
+            <h4>تواصل معنا</h4>
+            <ul class="home-footer-contact">
+                <li><b>الجامعة:</b> جامعة طيبة — المدينة المنورة</li>
+                <li><b>البريد:</b> industry.pioneers@taibahu.edu.sa</li>
+            </ul>
+        </div>
+
+    </div>
+    <div class="home-footer-bar">
+        © {{ 2026 }} {{ club_identity.name if club_identity else 'نادي رواد الصناعة' }} — جميع الحقوق محفوظة.
+    </div>
+</footer>
+
+
+<script>
+(function(){
+    // Scroll reveal
+    var items = document.querySelectorAll('.home-reveal');
+    if ('IntersectionObserver' in window && items.length){
+        var io = new IntersectionObserver(function(entries){
+            entries.forEach(function(e){
+                if (e.isIntersecting){
+                    e.target.classList.add('in');
+                    io.unobserve(e.target);
+                }
+            });
+        }, { threshold: 0.12 });
+        items.forEach(function(el){ io.observe(el); });
+    } else {
+        items.forEach(function(el){ el.classList.add('in'); });
+    }
+
+    // Carousel manual controls (nudge the animation on click)
+    var track = document.getElementById('homeCarouselTrack');
+    var carousel = document.getElementById('homeCarousel');
+    if (track && carousel){
+        var prev = carousel.querySelector('.home-carousel-prev');
+        var next = carousel.querySelector('.home-carousel-next');
+        var offset = 0;
+        function nudge(delta){
+            track.classList.add('paused');
+            offset += delta;
+            track.style.transform = 'translateX(' + offset + 'px)';
+            setTimeout(function(){
+                track.classList.remove('paused');
+                track.style.transform = '';
+            }, 2200);
+        }
+        if (prev) prev.addEventListener('click', function(){ nudge(-200); });
+        if (next) next.addEventListener('click', function(){ nudge(200); });
+    }
+})();
+</script>
+
+</body>
+</html>

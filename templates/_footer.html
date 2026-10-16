@@ -1,0 +1,58 @@
+{# ============================================================
+   Shared site footer. Include with {% include "_footer.html" %}
+   on every page. Pages that render the full site chrome (header
+   from main.js, this footer) must also link static/css/footer.css
+   so the layout works even on pages that do not load home.css.
+   ============================================================ #}
+<footer class="home-footer">
+    <div class="home-footer-wrap">
+
+        <div class="home-footer-brand">
+            <div class="logos">
+                <img src="{{ url_for('static', filename='Image/club-logo.png') }}" alt="نادي رواد الصناعة">
+                <span class="logos-divider" aria-hidden="true"></span>
+                <img src="{{ url_for('static', filename='Image/taibah-logo.png') }}" alt="جامعة طيبة">
+            </div>
+            <p>
+                {{ club_identity.name if club_identity else 'نادي رواد الصناعة' }} — جامعة طيبة.
+                منصة طلابية تربط بين البيئة الأكاديمية والقطاع الصناعي.
+            </p>
+        </div>
+
+        <div>
+            <h4>روابط سريعة</h4>
+            <ul>
+                <li><a href="{{ url_for('home') }}">الرئيسية</a></li>
+                <li><a href="{{ url_for('about_page') }}">عن النادي</a></li>
+                <li><a href="{{ url_for('events_page') }}">الفعاليات</a></li>
+                <li><a href="{{ url_for('gazette_page') }}">جريدة الصناعة</a></li>
+                <li><a href="{{ url_for('partners_page') }}">الرعاة والشركاء</a></li>
+            </ul>
+        </div>
+
+        <div>
+            <h4>انضم إلينا</h4>
+            <ul>
+                {% if current_user.is_authenticated %}
+                <li><a href="{{ url_for('dashboard') }}">لوحتي</a></li>
+                <li><a href="{{ url_for('logout') }}">تسجيل الخروج</a></li>
+                {% else %}
+                <li><a href="{{ url_for('login_form') }}">تسجيل الدخول</a></li>
+                <li><a href="{{ url_for('visitor_portal') }}">طلب العضوية</a></li>
+                {% endif %}
+            </ul>
+        </div>
+
+        <div>
+            <h4>تواصل معنا</h4>
+            <ul class="home-footer-contact">
+                <li><b>الجامعة:</b> جامعة طيبة — المدينة المنورة — ينبع</li>
+                <li><b>البريد:</b> industry.pioneers@taibahu.edu.sa</li>
+            </ul>
+        </div>
+
+    </div>
+    <div class="home-footer-bar">
+        © {{ 2026 }} {{ club_identity.name if club_identity else 'نادي رواد الصناعة' }} — جميع الحقوق محفوظة.
+    </div>
+</footer>

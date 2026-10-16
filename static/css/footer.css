@@ -1,0 +1,147 @@
+/* ============================================================
+   Shared site footer. Used by every template that includes
+   templates/_footer.html. Keep this file self-contained so
+   pages that do NOT also load home.css still render the footer
+   correctly.
+
+   This is the single source of truth for footer styling —
+   home.css re-declares nothing; it just links this file.
+   ============================================================ */
+
+/* Local token so the footer works on pages that don't load home.css. */
+.home-footer{
+    --h-orange: #f5a650;
+}
+
+/* ------- FOOTER ------- */
+.home-footer{
+    background: #0b2537;         /* close to brand navy, slightly deeper */
+    color: #cdd8e2;
+    padding: 56px 24px 20px;
+    position: relative;
+}
+.home-footer-wrap{
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr 1.2fr;
+    gap: 48px;
+    direction: rtl;
+    align-items: start;
+}
+
+/* ---- Brand column ---- */
+.home-footer-brand{
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.home-footer-brand .logos{
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+.home-footer-brand .logos img{
+    height: 56px;
+    width: auto;
+    object-fit: contain;
+    opacity: .95;
+    display: block;
+}
+.home-footer-brand .logos-divider{
+    display: inline-block;
+    width: 1px;
+    height: 40px;
+    background: rgba(255, 255, 255, .22);
+    flex-shrink: 0;
+}
+.home-footer-brand p{
+    color: #a7b8c7;
+    font-size: 14px;
+    line-height: 1.9;
+    margin: 0;
+    max-width: 36ch;
+}
+
+/* ---- Column headings ---- */
+.home-footer h4{
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    margin: 4px 0 18px;
+    padding-bottom: 10px;
+    position: relative;
+}
+.home-footer h4::after{
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;              /* RTL start */
+    width: 28px;
+    height: 2px;
+    background: var(--h-orange);
+    border-radius: 2px;
+}
+
+/* ---- Lists ---- */
+.home-footer ul{
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.home-footer ul a,
+.home-footer ul li{
+    color: #a7b8c7;
+    text-decoration: none;
+    font-size: 14px;
+    line-height: 1.75;
+    transition: color .2s;
+}
+.home-footer ul a:hover{ color: var(--h-orange); }
+
+/* Contact column: tighter two-row item (label on top, value below). */
+.home-footer-contact li{
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+.home-footer-contact li b{
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+}
+
+/* ---- Bottom bar ---- */
+.home-footer-bar{
+    max-width: 1240px;
+    margin: 40px auto 0;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    text-align: center;
+    color: #7a8e9f;
+    font-size: 13px;
+}
+
+/* Suppress the dark 50px <footer class="mini-footer"> that
+   main.js injects on every page — the shared footer replaces it.
+   The main.js injection stays as a fallback for pages that for
+   some reason don't include the shared footer. */
+body > footer.mini-footer{ display: none; }
+
+/* ------- RESPONSIVE ------- */
+@media (max-width: 1000px){
+    .home-footer{ padding: 48px 24px 20px; }
+    .home-footer-wrap{ grid-template-columns: 1fr 1fr; gap: 36px; }
+    .home-footer-brand .logos img{ height: 48px; }
+    .home-footer-brand .logos-divider{ height: 34px; }
+}
+@media (max-width: 680px){
+    .home-footer{ padding: 40px 18px 20px; }
+    .home-footer-wrap{ grid-template-columns: 1fr; gap: 28px; }
+    .home-footer h4{ margin-top: 10px; }
+    .home-footer-brand p{ max-width: 100%; }
+}

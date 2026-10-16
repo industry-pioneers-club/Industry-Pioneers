@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مبادراتي | نادي رواد الصناعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/footer.css') }}">
+<script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+<style>
+    .ini-container{max-width:900px;margin:40px auto;padding:0 20px}
+    .ini-card{background:#fff;padding:22px 24px;margin:16px 0;border-radius:12px;border-right:5px solid #d99a35;box-shadow:0 4px 15px rgba(0,0,0,0.06)}
+    .ini-form input, .ini-form textarea{width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;font-family:inherit;font-size:14px;margin-bottom:12px;box-sizing:border-box}
+    .ini-form textarea{min-height:120px;resize:vertical}
+    .ini-form label{display:block;color:#1b365d;font-weight:700;margin-bottom:6px}
+    .ini-form button{background:#1b365d;color:#fff;padding:10px 24px;border:0;border-radius:7px;cursor:pointer;font-weight:700;font-family:inherit;font-size:14px}
+    .ini-form button:hover{background:#f39c12}
+    .ini-status{padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}
+    .ini-status.approved{background:#d4edda;color:#155724}
+    .ini-status.pending{background:#fff3cd;color:#805d00}
+    .ini-status.rejected{background:#f8d7da;color:#721c24}
+    .back-btn{display:inline-block;background:#1b365d;color:#fff;padding:10px 20px;border-radius:7px;text-decoration:none;font-weight:700;margin-top:20px}
+    .back-btn:hover{background:#f39c12}
+</style>
+</head>
+<body>
+<template id="auth-links-source">
+{% if current_user.is_authenticated %}
+<a class="login-btn" href="{{ url_for('dashboard') }}">لوحتي</a>
+<a class="login-btn" href="{{ url_for('logout') }}">تسجيل الخروج</a>
+{% else %}
+<a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
+{% endif %}
+</template>
+
+<section class="banner">
+    <h1>مبادراتي</h1>
+    <span class="sub">قدّم مبادرة لتطوير أنشطة النادي — تُمنح النقاط بعد اعتماد القائد</span>
+</section>
+
+<main class="ini-container">
+
+    <div class="ini-card">
+        <h2 style="color:#1b365d;margin:0 0 6px;font-size:20px">تقديم مبادرة جديدة</h2>
+        <p style="color:#555;margin:0 0 16px;font-size:14px">
+            عند الاعتماد يُضاف {{ points_value }} نقطة إلى رصيدك تلقائياً.
+        </p>
+        <form method="post" action="{{ url_for('submit_initiative') }}" class="ini-form">
+            <label for="iniTitle">عنوان المبادرة *</label>
+            <input id="iniTitle" name="title" required maxlength="200" placeholder="مثال: ورشة الذكاء الاصطناعي في الصناعة">
+            <label for="iniDesc">وصف المبادرة</label>
+            <textarea id="iniDesc" name="description" maxlength="2000" placeholder="الهدف، الفئة المستهدفة، الموارد المطلوبة…"></textarea>
+            <button type="submit">إرسال للمراجعة</button>
+        </form>
+    </div>
+
+    <h2 style="color:#1b365d;margin:28px 0 10px;border-bottom:2px solid #f39c12;padding-bottom:6px">سجل مبادراتي</h2>
+
+    {% if mine %}
+    {% for i in mine %}
+    <div class="ini-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div>
+                <h3 style="color:#1b365d;margin:0 0 6px;font-size:18px">{{ i.title }}</h3>
+                <p style="color:#555;margin:4px 0;line-height:1.7">{{ i.description or '—' }}</p>
+                <small style="color:#888">قُدِّمت في {{ i.submitted_at.strftime('%Y-%m-%d %H:%M') }}</small>
+            </div>
+            <span class="ini-status {{ i.status }}">
+                {% if i.status == 'approved' %}معتمدة
+                {% elif i.status == 'rejected' %}مرفوضة
+                {% else %}قيد المراجعة
+                {% endif %}
+            </span>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="text-align:center;color:#888;padding:30px">لم تقدّم أي مبادرة بعد.</p>
+    {% endif %}
+
+    <a class="back-btn" href="{{ url_for('member_profile') }}">العودة إلى لوحة العضو</a>
+</main>
+{% include "_footer.html" %}
+</body>
+</html>
