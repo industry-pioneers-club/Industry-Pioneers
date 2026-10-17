@@ -754,36 +754,6 @@ def repair_image_paths():
         db.session.commit()
 
 
-def seed_demo_leader():
-    # Dev-only demo credential. Remove or change before production.
-    if db.session.query(User.id).filter_by(email="leader@club.com").first() is not None:
-        return
-    db.session.add(
-        User(
-            name="Admin",
-            email="leader@club.com",
-            password_hash=generate_password_hash("password123"),
-            role="leader",
-        )
-    )
-    db.session.commit()
-
-
-def seed_demo_supervisor():
-    # Dev-only demo credential. Remove or change before production.
-    if db.session.query(User.id).filter_by(email="supervisor@club.com").first() is not None:
-        return
-    db.session.add(
-        User(
-            name="Academic Supervisor",
-            email="supervisor@club.com",
-            password_hash=generate_password_hash("password1234"),
-            role="supervisor",
-        )
-    )
-    db.session.commit()
-
-
 def _ensure_sqlite_column(table, column, type_sql, default_sql="NULL"):
     """Phase 2: add a column via ALTER TABLE only if it does not already exist.
     SQLite only; Postgres path uses ADD COLUMN IF NOT EXISTS below."""
@@ -1148,13 +1118,6 @@ def initialize_database():
             db.create_all()
             _upgrade_schema()
             seed_if_empty()
-            # Demo leader/supervisor accounts are off by default so Vercel
-            # cold starts don't recreate them. Set SEED_DEMO_USERS=1 to
-            # opt back in for local development. Existing rows in the DB
-            # (yours and any previously seeded demos) are never deleted.
-            if os.environ.get("SEED_DEMO_USERS", "0") == "1":
-                seed_demo_leader()
-                seed_demo_supervisor()
         except (IntegrityError, OperationalError) as exc:
             db.session.rollback()
             logger.warning("initialize_database rolled back: %s", exc)
