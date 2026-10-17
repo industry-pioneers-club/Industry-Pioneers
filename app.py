@@ -729,22 +729,36 @@ def seed_if_empty():
 
 
 def ensure_sample_rows():
-    titles = {row.title for row in Event.query}
-    for event in _sample_events():
-        if event.title not in titles:
+    """One-shot seed for a brand-new database. Each table is seeded only
+    while it is completely empty — once the leader has created, edited,
+    or deleted any row the auto-seed is permanently disabled for that
+    table, so a deleted sample row cannot be resurrected on cold start."""
+    changed = False
+    if Event.query.first() is None:
+        for event in _sample_events():
             db.session.add(event)
-    article_titles = {row.title for row in Article.query}
-    for article in _sample_articles():
-        if article.title not in article_titles:
+        changed = True
+    if Article.query.first() is None:
+        for article in _sample_articles():
             db.session.add(article)
-    sponsor_names = {row.name for row in Sponsor.query}
-    for sponsor in _sample_sponsors():
-        if sponsor.name not in sponsor_names:
+        changed = True
+    if Sponsor.query.first() is None:
+        for sponsor in _sample_sponsors():
             db.session.add(sponsor)
-    db.session.commit()
+        changed = True
+    if changed:
+        db.session.commit()
 
 
 def _canonical_image(path, fallbacks, row_id):
+    # Virtual DB-blob paths (event-image/<id>, article-image/<id>) are
+    # served by their own routes, not from static/. Leave them alone —
+    # otherwise repair_image_paths() would overwrite freshly uploaded
+    # images with a static fallback every cold start.
+    if isinstance(path, str) and (
+        path.startswith(_EVENT_IMAGE_PREFIX) or path.startswith(_ARTICLE_IMAGE_PREFIX)
+    ):
+        return path
     mapped = _IMAGE_FIXES.get(path, path)
     rel = _safe_static_rel(mapped)
     if rel:
