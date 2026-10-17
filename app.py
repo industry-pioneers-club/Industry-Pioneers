@@ -1,6 +1,10 @@
 import hmac
+import json
 import logging
 import os
+import re
+import urllib.error
+import urllib.request
 from datetime import datetime
 from functools import wraps
 
@@ -966,6 +970,18 @@ def _upgrade_schema():
             "ON notification(event_id, recipient_user_id) "
             "WHERE kind = 'waitlist_promoted'"
         ))
+        # Partial unique indexes: one active (pending) MembershipRequest
+        # per student_id, and per lower(email) when email is provided.
+        # Historical approved/rejected rows are unaffected.
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_student "
+            "ON membership_request(student_id) WHERE status = 'pending'"
+        ))
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_email "
+            "ON membership_request(lower(email)) "
+            "WHERE status = 'pending' AND email IS NOT NULL"
+        ))
         db.session.commit()
     elif dialect == "postgresql":
         db.session.execute(db.text(
@@ -1096,6 +1112,17 @@ def _upgrade_schema():
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_waitlist_promoted "
             "ON notification(event_id, recipient_user_id) "
             "WHERE kind = 'waitlist_promoted'"
+        ))
+        # Membership request dedup: one active pending request per student
+        # and per normalized email. Existing rows are untouched.
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_student "
+            "ON membership_request(student_id) WHERE status = 'pending'"
+        ))
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_email "
+            "ON membership_request(lower(email)) "
+            "WHERE status = 'pending' AND email IS NOT NULL"
         ))
         db.session.commit()
 
@@ -1284,17 +1311,26 @@ def submit_membership_request():
     name = text_field(data, "name")[:120]
     student_id = text_field(data, "student_id")[:50]
     major = text_field(data, "major")[:120]
-    email = text_field(data, "email")[:120] or None
+    email = normalize_email(text_field(data, "email"))[:120] or None
     reason = text_field(data, "reason")[:2000] or None
     if not name or not student_id or not major:
         return jsonify({"error": "الاسم والرقم الجامعي والتخصص مطلوبة"}), 400
-    existing = (
-        MembershipRequest.query
-        .filter_by(student_id=student_id, status="pending")
-        .first()
-    )
-    if existing is not None:
-        return jsonify({"error": "لديك طلب قيد المراجعة بالفعل"}), 409
+    if email and not is_valid_email_format(email):
+        return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
+    # Block duplicate active applications by student_id OR email.
+    duplicate_q = MembershipRequest.query.filter_by(status="pending")
+    if email:
+        from sqlalchemy import or_, func
+        duplicate = duplicate_q.filter(
+            or_(
+                MembershipRequest.student_id == student_id,
+                func.lower(MembershipRequest.email) == email,
+            )
+        ).first()
+    else:
+        duplicate = duplicate_q.filter_by(student_id=student_id).first()
+    if duplicate is not None:
+        return jsonify({"error": "يوجد طلب نشط بنفس البيانات قيد المراجعة بالفعل"}), 409
     mr = MembershipRequest(
         name=name,
         student_id=student_id,
@@ -1304,7 +1340,11 @@ def submit_membership_request():
         status="pending",
     )
     db.session.add(mr)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "يوجد طلب نشط بنفس البيانات قيد المراجعة بالفعل"}), 409
     return jsonify({"id": mr.id, "status": mr.status}), 201
 
 
@@ -1523,6 +1563,72 @@ def _valid_http_url(v):
     return isinstance(v, str) and (v.startswith("http://") or v.startswith("https://"))
 
 
+# Pragmatic email format check: one '@', at least one '.' in the domain,
+# no whitespace. Kept deliberately permissive — we rely on delivery to
+# flag deeper problems. No university-domain assumption.
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def normalize_email(raw):
+    """Trim surrounding whitespace and lowercase so comparisons are
+    case-insensitive and resilient to accidental padding. Returns an
+    empty string for falsy / non-string input."""
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower()
+
+
+def is_valid_email_format(value):
+    return bool(_EMAIL_RE.match(value or ""))
+
+
+# --------- Email delivery (Resend) ---------
+# Config lives entirely in env vars so no secret ever lands in the repo:
+#   RESEND_API_KEY         — API key from https://resend.com (required to send)
+#   RESEND_FROM            — verified sender, e.g. "النادي <noreply@yourdomain.com>"
+# When RESEND_API_KEY is unset we log and skip — callers must not claim
+# success to users unless this returns True.
+_RESEND_URL = "https://api.resend.com/emails"
+
+
+def _email_enabled():
+    return bool(os.environ.get("RESEND_API_KEY") and os.environ.get("RESEND_FROM"))
+
+
+def send_email(to_address, subject, html_body, text_body=None):
+    """Send a transactional email via Resend. Returns True on success,
+    False if the provider is unconfigured or the request fails. Never
+    raises — callers decide how to surface failures."""
+    if not to_address or not _email_enabled():
+        return False
+    api_key = os.environ["RESEND_API_KEY"]
+    sender = os.environ["RESEND_FROM"]
+    payload = {
+        "from": sender,
+        "to": [to_address],
+        "subject": subject,
+        "html": html_body,
+    }
+    if text_body:
+        payload["text"] = text_body
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        _RESEND_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+        logger.warning("Resend send failed for %s: %s", to_address, exc)
+        return False
+
+
 def _int_or_none(v):
     try:
         return int(v) if v not in (None, "", "null") else None
@@ -1605,12 +1711,14 @@ def register_form():
 def register():
     data = submitted()
     name = text_field(data, "name")
-    email = text_field(data, "email")
+    email = normalize_email(text_field(data, "email"))
     password = data.get("password")
     if not name or not email or not isinstance(password, str) or password == "":
-        return jsonify({"error": "name, email, and password are required"}), 400
+        return jsonify({"error": "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة"}), 400
+    if not is_valid_email_format(email):
+        return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
     if User.query.filter_by(email=email).first() is not None:
-        return jsonify({"error": "Email already registered"}), 409
+        return jsonify({"error": "هذا البريد الإلكتروني مسجل مسبقاً"}), 409
     # Role comes from either (a) a valid invite code, or (b) an existing
     # approved MembershipRequest for the same email. Any client-supplied
     # role is ignored.
@@ -1633,8 +1741,24 @@ def register():
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-        return jsonify({"error": "Email already registered"}), 409
-    return jsonify(public_user(user)), 201
+        return jsonify({"error": "هذا البريد الإلكتروني مسجل مسبقاً"}), 409
+    email_sent = send_email(
+        user.email,
+        subject="تم إنشاء حسابك في نادي رواد الصناعة",
+        html_body=(
+            f"<p>مرحباً {user.name}،</p>"
+            "<p>تم إنشاء حسابك بنجاح في نادي رواد الصناعة.</p>"
+            "<p>بإمكانك الآن تسجيل الدخول واستكشاف الفعاليات والمحتوى.</p>"
+            "<p>— إدارة النادي</p>"
+        ),
+        text_body=(
+            f"مرحباً {user.name}،\n\n"
+            "تم إنشاء حسابك بنجاح في نادي رواد الصناعة.\n"
+            "بإمكانك الآن تسجيل الدخول واستكشاف الفعاليات والمحتوى.\n\n"
+            "— إدارة النادي"
+        ),
+    )
+    return jsonify({**public_user(user), "email_sent": email_sent}), 201
 
 
 @app.get("/signup")
@@ -2478,10 +2602,29 @@ def approve_membership_request(req_id):
             existing.role = "member"
             promoted_user_id = existing.id
     db.session.commit()
+    email_sent = send_email(
+        mr.email,
+        subject="تم قبول طلب العضوية في نادي رواد الصناعة",
+        html_body=(
+            f"<p>مرحباً {mr.name}،</p>"
+            "<p>يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة.</p>"
+            "<p>إذا كنت قد سجّلت حساباً بنفس البريد فقد تمّت ترقيته تلقائياً إلى عضو؛"
+            " وإلا بإمكانك إنشاء حساب عبر صفحة التسجيل.</p>"
+            "<p>— إدارة النادي</p>"
+        ),
+        text_body=(
+            f"مرحباً {mr.name}،\n\n"
+            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
+            "إذا كنت قد سجّلت حساباً بنفس البريد فقد رُقّي تلقائياً إلى عضو؛"
+            " وإلا بإمكانك إنشاء حساب عبر صفحة التسجيل.\n\n"
+            "— إدارة النادي"
+        ),
+    ) if mr.email else False
     return jsonify({
         "id": mr.id,
         "status": mr.status,
         "promoted_user_id": promoted_user_id,
+        "email_sent": email_sent,
         "note": "تمت الموافقة. إذا كان المتقدم مسجلاً بنفس البريد فسيُفعَّل كعضو تلقائياً، وإلا يمكنه التسجيل عبر /signup برمز الدعوة.",
     })
 
@@ -2498,7 +2641,25 @@ def reject_membership_request(req_id):
     mr.reviewed_by = current_user.id
     mr.reviewed_at = datetime.now()
     db.session.commit()
-    return jsonify({"id": mr.id, "status": mr.status})
+    email_sent = send_email(
+        mr.email,
+        subject="تحديث بشأن طلب العضوية في نادي رواد الصناعة",
+        html_body=(
+            f"<p>مرحباً {mr.name}،</p>"
+            "<p>نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة."
+            " بعد المراجعة، <strong>لم يتم قبول طلب العضوية</strong> في هذه المرحلة.</p>"
+            "<p>يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.</p>"
+            "<p>— إدارة النادي</p>"
+        ),
+        text_body=(
+            f"مرحباً {mr.name}،\n\n"
+            "نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة.\n"
+            "بعد المراجعة لم يتم قبول طلب العضوية في هذه المرحلة.\n"
+            "يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.\n\n"
+            "— إدارة النادي"
+        ),
+    ) if mr.email else False
+    return jsonify({"id": mr.id, "status": mr.status, "email_sent": email_sent})
 
 
 def _award_points(user_id, action, points, **ref_ids):

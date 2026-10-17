@@ -1143,9 +1143,13 @@ if (supervisorPage) {
                     : '—';
             }
             if (typeof toast === 'function') {
-                toast(action === 'approve'
-                    ? 'تم اعتماد الطلب — يرجى إبلاغ المتقدم للتسجيل عبر صفحة إنشاء الحساب'
-                    : 'تم رفض الطلب');
+                const base = action === 'approve'
+                    ? 'تم اعتماد الطلب'
+                    : 'تم رفض الطلب';
+                const emailNote = data.email_sent
+                    ? ' · أُرسل إشعار للمتقدم'
+                    : ' · لم يُرسل إيميل (الخدمة غير مفعّلة)';
+                toast(base + emailNote);
             }
         } catch (_) {
             if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
