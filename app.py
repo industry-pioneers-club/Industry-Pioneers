@@ -1180,11 +1180,17 @@ def published_articles():
 
 
 def club_context():
+    # Home page intentionally lists only previous sponsors ("الشركاء
+    # السابقون"); current partners live on /partners.
     return {
         "club_identity": ClubIdentity.query.first(),
         "events": public_events(),
         "articles": published_articles(),
-        "sponsors": Sponsor.query.order_by(Sponsor.id.asc()).all(),
+        "sponsors": (
+            Sponsor.query.filter_by(is_previous=True)
+            .order_by(Sponsor.id.asc())
+            .all()
+        ),
     }
 
 
@@ -2357,6 +2363,22 @@ def delete_task(task_id):
     return jsonify({"deleted": task_id})
 
 
+_SPONSOR_STATUS_VALUES = {"current", "previous"}
+
+
+def _parse_sponsor_status(data):
+    """Required 'حالة الراعي' field. Accepts 'current' or 'previous'
+    (also tolerates boolean-ish 'is_previous=1/0' for legacy clients).
+    Returns (is_previous_bool, error_message_or_None)."""
+    raw = text_field(data, "status").lower()
+    if raw in _SPONSOR_STATUS_VALUES:
+        return (raw == "previous"), None
+    legacy = data.get("is_previous")
+    if legacy is not None:
+        return (str(legacy).lower() in ("1", "true", "on", "yes", "previous")), None
+    return None, "حالة الراعي مطلوبة (حالي أو سابق)"
+
+
 @app.post("/leader/sponsors")
 @role_required("leader", "supervisor")
 def create_sponsor():
@@ -2366,12 +2388,15 @@ def create_sponsor():
     logo_input = text_field(data, "logo_path")
     if not name:
         return jsonify({"error": "name required"}), 400
+    is_previous, status_err = _parse_sponsor_status(data)
+    if status_err:
+        return jsonify({"error": status_err}), 400
     rel = _safe_static_rel(logo_input) if logo_input else None
     if logo_input and (rel is None or not _static_file_exists(rel)):
         return jsonify(
             {"error": "logo_path must point to an existing file under static/"}
         ), 400
-    sponsor = Sponsor(name=name, logo_path=rel, tier=tier)
+    sponsor = Sponsor(name=name, logo_path=rel, tier=tier, is_previous=is_previous)
     db.session.add(sponsor)
     db.session.commit()
     return jsonify({
@@ -2379,7 +2404,46 @@ def create_sponsor():
         "name": sponsor.name,
         "logo_path": sponsor.logo_path,
         "tier": sponsor.tier,
+        "is_previous": sponsor.is_previous,
     }), 201
+
+
+@app.post("/leader/sponsors/<int:sponsor_id>/edit")
+@role_required("leader", "supervisor")
+def edit_sponsor(sponsor_id):
+    sponsor = db.session.get(Sponsor, sponsor_id)
+    if sponsor is None:
+        abort(404)
+    data = submitted()
+    name = text_field(data, "name")[:200]
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    is_previous, status_err = _parse_sponsor_status(data)
+    if status_err:
+        return jsonify({"error": status_err}), 400
+    tier = (text_field(data, "tier") or "Partner")[:50]
+    if "logo_path" in data:
+        logo_input = text_field(data, "logo_path")
+        if logo_input == "":
+            sponsor.logo_path = None
+        else:
+            rel = _safe_static_rel(logo_input)
+            if rel is None or not _static_file_exists(rel):
+                return jsonify(
+                    {"error": "logo_path must point to an existing file under static/"}
+                ), 400
+            sponsor.logo_path = rel
+    sponsor.name = name
+    sponsor.tier = tier
+    sponsor.is_previous = is_previous
+    db.session.commit()
+    return jsonify({
+        "id": sponsor.id,
+        "name": sponsor.name,
+        "logo_path": sponsor.logo_path,
+        "tier": sponsor.tier,
+        "is_previous": sponsor.is_previous,
+    })
 
 
 @app.post("/leader/sponsors/<int:sponsor_id>/delete")

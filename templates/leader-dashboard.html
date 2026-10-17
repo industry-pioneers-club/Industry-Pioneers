@@ -1006,12 +1006,23 @@
 
         <div class="sponsor-dashboard-grid" id="sponsorList">
             {% for s in sponsors %}
-            <div class="sponsor-dashboard-card" data-sponsor-id="{{ s.id }}">
+            <div class="sponsor-dashboard-card"
+                 data-sponsor-id="{{ s.id }}"
+                 data-sponsor-name="{{ s.name }}"
+                 data-sponsor-tier="{{ s.tier or '' }}"
+                 data-sponsor-logo="{{ s.logo_path or '' }}"
+                 data-sponsor-status="{{ 'previous' if s.is_previous else 'current' }}">
                 <button class="sponsor-delete" data-delete-sponsor="{{ s.id }}" aria-label="حذف">×</button>
                 {% set src = s.logo_path|static_image %}
                 {% if src %}<img src="{{ src }}" alt="{{ s.name }}">{% endif %}
                 <h4>{{ s.name }}</h4>
                 {% if s.tier %}<small style="color:#888">{{ s.tier }}</small>{% endif %}
+                <span class="dashboard-status {{ 'status-pending' if s.is_previous else 'status-approved' }}"
+                      style="margin-top:6px">
+                    {{ 'سابق' if s.is_previous else 'حالي' }}
+                </span>
+                <button class="dashboard-action" data-edit-sponsor="{{ s.id }}"
+                        style="margin-top:6px">تعديل</button>
             </div>
             {% else %}
             <p class="empty">لا يوجد رعاة حالياً.</p>

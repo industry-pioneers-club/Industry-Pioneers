@@ -689,27 +689,48 @@ if (leaderPage) {
        The old in-memory approvalStatuses block was removed. ------- */
 
     /* -------- SPONSORS (real backend) -------- */
-    $('#addSponsorBtn')?.addEventListener('click',()=>{
-        modal(`
-            <h3>إضافة راعٍ</h3>
+    const sponsorFormBody = (vals) => {
+        const v = vals || {name:'', tier:'Partner', logo:'', status:'current'};
+        const esc = s => (s || '').replace(/"/g, '&quot;');
+        return `
             <div class="dashboard-form">
-                <label>اسم الراعي</label>
-                <input id="sponsorName" placeholder="اسم الراعي">
+                <label>اسم الراعي *</label>
+                <input id="sponsorName" placeholder="اسم الراعي" value="${esc(v.name)}">
                 <label>الفئة</label>
-                <input id="sponsorTier" placeholder="Partner / Gold / Silver" value="Partner">
+                <input id="sponsorTier" placeholder="Partner / Gold / Silver" value="${esc(v.tier) || 'Partner'}">
                 <label>مسار شعار الراعي (داخل مجلد static فقط)</label>
-                <input id="sponsorImage" placeholder="Image/sponsor.png">
-                <p style="font-size:13px;color:#666">يجب أن يكون المسار لملف موجود داخل static/. مثال: <code>Image/club-logo.png</code></p>
-                <button class="btn btn-o" id="saveSponsor">إضافة الراعي</button>
+                <input id="sponsorImage" placeholder="Image/sponsor.png" value="${esc(v.logo)}">
+                <p style="font-size:13px;color:#666;margin:4px 0 0">يجب أن يكون المسار لملف موجود داخل static/. مثال: <code>Image/club-logo.png</code></p>
+                <label>حالة الراعي *</label>
+                <select id="sponsorStatus" required>
+                    <option value="current" ${v.status === 'current' ? 'selected' : ''}>حالي</option>
+                    <option value="previous" ${v.status === 'previous' ? 'selected' : ''}>سابق</option>
+                </select>
             </div>
-        `);
+        `;
+    };
+    const readSponsorForm = () => {
+        const name = $('#sponsorName').value.trim();
+        if (!name) { toast('يرجى إدخال اسم الراعي'); return null; }
+        const status = $('#sponsorStatus').value;
+        if (status !== 'current' && status !== 'previous') {
+            toast('يرجى اختيار حالة الراعي');
+            return null;
+        }
+        const fd = new FormData();
+        fd.append('name', name);
+        fd.append('tier', $('#sponsorTier').value.trim() || 'Partner');
+        fd.append('logo_path', $('#sponsorImage').value.trim());
+        fd.append('status', status);
+        return fd;
+    };
+
+    $('#addSponsorBtn')?.addEventListener('click',()=>{
+        modal(`<h3>إضافة راعٍ</h3>${sponsorFormBody()}
+            <div class="row" style="margin-top:12px"><button class="btn btn-o" id="saveSponsor">إضافة الراعي</button></div>`);
         $('#saveSponsor').onclick = async () => {
-            const name = $('#sponsorName').value.trim();
-            if (!name) return toast('يرجى إدخال اسم الراعي');
-            const fd = new FormData();
-            fd.append('name', name);
-            fd.append('tier', $('#sponsorTier').value.trim() || 'Partner');
-            fd.append('logo_path', $('#sponsorImage').value.trim());
+            const fd = readSponsorForm();
+            if (!fd) return;
             try {
                 const res = await fetch('/leader/sponsors', {method:'POST', body: fd});
                 if (!res.ok) {
@@ -718,6 +739,36 @@ if (leaderPage) {
                 }
                 closeModal();
                 toast('تمت إضافة الراعي');
+                location.reload();
+            } catch (_) { toast('تعذر الاتصال بالخادم'); }
+        };
+    });
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('[data-edit-sponsor]');
+        if (!btn) return;
+        const card = btn.closest('.sponsor-dashboard-card');
+        if (!card) return;
+        const id = btn.dataset.editSponsor;
+        const vals = {
+            name: card.dataset.sponsorName || '',
+            tier: card.dataset.sponsorTier || 'Partner',
+            logo: card.dataset.sponsorLogo || '',
+            status: card.dataset.sponsorStatus === 'previous' ? 'previous' : 'current',
+        };
+        modal(`<h3>تعديل الراعي</h3>${sponsorFormBody(vals)}
+            <div class="row" style="margin-top:12px"><button class="btn btn-o" id="saveSponsorEdit">حفظ التعديل</button></div>`);
+        $('#saveSponsorEdit').onclick = async () => {
+            const fd = readSponsorForm();
+            if (!fd) return;
+            try {
+                const res = await fetch(`/leader/sponsors/${id}/edit`, {method:'POST', body: fd});
+                if (!res.ok) {
+                    const err = await res.json().catch(()=>({error:'فشل الحفظ'}));
+                    return toast(err.error || 'فشل الحفظ');
+                }
+                closeModal();
+                toast('تم حفظ التعديل');
                 location.reload();
             } catch (_) { toast('تعذر الاتصال بالخادم'); }
         };
