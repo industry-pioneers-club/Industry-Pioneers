@@ -441,13 +441,24 @@ if (leaderPage) {
                     <span>إزالة الصورة الحالية</span>
                 </label>
 
+                <p id="editEventError" style="display:none;color:#c0392b;background:#fdecea;border:1px solid #f5c6cb;padding:8px 12px;border-radius:8px;margin:12px 0 0;font-size:13.5px"></p>
+
                 <div class="row" style="margin-top:16px">
-                    <button class="btn btn-o" id="saveEventEdit">حفظ التعديل</button>
+                    <button type="button" class="btn btn-o" id="saveEventEdit">حفظ التعديل</button>
                     <button class="btn btn-s" type="button" data-close>إلغاء</button>
                 </div>
             </div>
         `);
         applyEvModalScope();
+        const editErrorBox = $('#editEventError');
+        const showEditError = (msg) => {
+            if (editErrorBox) {
+                editErrorBox.textContent = msg;
+                editErrorBox.style.display = 'block';
+                editErrorBox.scrollIntoView({behavior:'smooth', block:'center'});
+            }
+            toast(msg);
+        };
         // Live preview: when the user picks a new file, show it.
         const editImgInput = $('#editEventImageFile');
         const editImgPrev = $('#editEventImagePreview');
@@ -470,17 +481,26 @@ if (leaderPage) {
                 editImgPrev.style.display = 'block';
             }
         });
-        $('#saveEventEdit').onclick = async () => {
+        const saveBtn = $('#saveEventEdit');
+        const onSaveEdit = async (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            if (saveBtn.disabled) return;
+            if (editErrorBox) editErrorBox.style.display = 'none';
             const newTitle = $('#editEventTitle').value.trim();
+            // Legacy events predate the category field (NULL in DB) — do not
+            // block editing them. Only enforce category when the user picked
+            // one or when it was already set; the backend edit endpoint
+            // treats category as optional on update.
             const newCategory = $('#editEventCategory').value;
             const newDate = $('#editEventDate').value;
             const newTime = $('#editEventTime').value;
-            if (!newTitle) return toast('يرجى إدخال عنوان الفعالية');
-            if (!newCategory) return toast('نوع الفعالية مطلوب');
-            if (!newDate || !newTime) return toast('يرجى إدخال التاريخ والوقت');
+            if (!newTitle) return showEditError('يرجى إدخال عنوان الفعالية');
+            if (!newDate || !newTime) return showEditError('يرجى إدخال التاريخ والوقت');
             const fd = new FormData();
             fd.append('title', newTitle);
-            fd.append('category', newCategory);
+            // Only send category if non-empty — avoids clearing it to NULL
+            // when the row never had one (would otherwise be a silent change).
+            if (newCategory) fd.append('category', newCategory);
             fd.append('date', newDate);
             fd.append('time', newTime);
             fd.append('is_public', $('#editEventPublic').checked ? '1' : '0');
@@ -501,21 +521,34 @@ if (leaderPage) {
             // Always submit so edits clear the venue fields when emptied.
             fd.append('location_name', $('#editEventLocationName').value.trim());
             fd.append('location_url', $('#editEventLocationUrl').value.trim());
+            const originalLabel = saveBtn.textContent;
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'جارٍ الحفظ…';
             try {
                 const res = await fetch(`/leader/events/${id}/edit`, {method:'POST', body: fd});
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({error:'فشل الحفظ'}));
-                    return toast(err.error || 'فشل الحفظ');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = originalLabel;
+                    return showEditError(err.error || 'فشل الحفظ');
                 }
                 const data = await res.json().catch(() => ({}));
                 closeModal();
-                let msg = 'تم تعديل الفعالية';
+                let msg = 'تم حفظ التعديل';
                 if (data.promoted) msg += ` · رُقّي ${data.promoted} من قائمة الانتظار`;
                 if (data.notified_members) msg += ` · أُشعر ${data.notified_members} عضواً`;
                 toast(msg);
                 location.reload();
-            } catch (_) { toast('تعذر الاتصال بالخادم'); }
+            } catch (_) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalLabel;
+                showEditError('تعذر الاتصال بالخادم');
+            }
         };
+        // Bind via both addEventListener and onclick so a stray reassignment
+        // elsewhere can't silently remove the handler.
+        saveBtn.addEventListener('click', onSaveEdit);
+        saveBtn.onclick = onSaveEdit;
     });
 
     /* -------- DELETE EVENT (dependency-aware) -------- */
