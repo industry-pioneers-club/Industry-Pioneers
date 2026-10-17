@@ -535,7 +535,9 @@
                             data-event-deadline-date="{{ ev.registration_deadline.strftime('%Y-%m-%d') if ev.registration_deadline else '' }}"
                             data-event-deadline-time="{{ ev.registration_deadline.strftime('%H:%M') if ev.registration_deadline else '' }}"
                             data-event-tags="{{ ev.tags or '' }}"
-                            data-event-category="{{ ev.category or '' }}">
+                            data-event-category="{{ ev.category or '' }}"
+                            data-event-location-name="{{ ev.location_name or '' }}"
+                            data-event-location-url="{{ ev.location_url or '' }}">
                             <td>{{ ev.title }}</td>
                             <td data-event-date-cell>{{ ev.date.strftime('%Y-%m-%d') }}</td>
                             <td>{{ ev.date.strftime('%H:%M') }}</td>

@@ -269,6 +269,13 @@ if (leaderPage) {
                     سنُشعر الأعضاء الذين يطابقون اهتماماتهم أياً من هذه التصنيفات عند نشر الفعالية.
                 </p>
 
+                <label>اسم المكان (اختياري)</label>
+                <input id="newEventLocationName" maxlength="200" placeholder="مثال: قاعة الملتقى، كلية الهندسة">
+
+                <label>رابط الموقع (اختياري)</label>
+                <input id="newEventLocationUrl" type="url" maxlength="500" placeholder="https://maps.google.com/...">
+                <p style="font-size:13px;color:#666;margin:4px 0 0">يمكن لصق رابط Google Maps أو أي رابط خرائط آخر.</p>
+
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                     <input id="newEventIsPublic" type="checkbox">
                     <span>عرض الفعالية على الصفحة العامة</span>
@@ -318,6 +325,10 @@ if (leaderPage) {
             if (cap !== '') fd.append('capacity', cap);
             const tags = $('#newEventTags').value.trim();
             if (tags) fd.append('tags', tags);
+            const locName = $('#newEventLocationName').value.trim();
+            if (locName) fd.append('location_name', locName);
+            const locUrl = $('#newEventLocationUrl').value.trim();
+            if (locUrl) fd.append('location_url', locUrl);
             const imgFile = newImgInput && newImgInput.files && newImgInput.files[0];
             if (imgFile) fd.append('image', imgFile);
             try {
@@ -357,9 +368,13 @@ if (leaderPage) {
         const deadlineTime = row.dataset.eventDeadlineTime || '';
         const tags = row.dataset.eventTags || '';
         const category = row.dataset.eventCategory || '';
+        const locationName = row.dataset.eventLocationName || '';
+        const locationUrl = row.dataset.eventLocationUrl || '';
         const titleAttr = title.replace(/"/g, '&quot;');
         const imageAttr = image.replace(/"/g, '&quot;');
         const tagsAttr = tags.replace(/"/g, '&quot;');
+        const locationNameAttr = locationName.replace(/"/g, '&quot;');
+        const locationUrlAttr = locationUrl.replace(/"/g, '&quot;');
         modal(`
             <h3>تعديل الفعالية</h3>
             <p style="color:#888;font-size:13px;margin:4px 0 10px">
@@ -400,6 +415,14 @@ if (leaderPage) {
                 <label>الاهتمامات/التصنيفات (مفصولة بفواصل)</label>
                 <input id="editEventTags" type="text" value="${tagsAttr}"
                        placeholder="مثال: الابتكار, ورش هندسية">
+
+                <label>اسم المكان (اختياري)</label>
+                <input id="editEventLocationName" type="text" maxlength="200" value="${locationNameAttr}"
+                       placeholder="مثال: قاعة الملتقى، كلية الهندسة">
+
+                <label>رابط الموقع (اختياري)</label>
+                <input id="editEventLocationUrl" type="url" maxlength="500" value="${locationUrlAttr}"
+                       placeholder="https://maps.google.com/...">
 
                 <label style="display:flex;align-items:center;gap:8px;margin-top:14px">
                     <input id="editEventPublic" type="checkbox" ${isPublic ? 'checked' : ''}
@@ -475,6 +498,9 @@ if (leaderPage) {
             fd.append('registration_deadline_time', $('#editEventDeadlineTime').value || '23:59');
             fd.append('capacity', $('#editEventCapacity').value.trim());
             fd.append('tags', $('#editEventTags').value.trim());
+            // Always submit so edits clear the venue fields when emptied.
+            fd.append('location_name', $('#editEventLocationName').value.trim());
+            fd.append('location_url', $('#editEventLocationUrl').value.trim());
             try {
                 const res = await fetch(`/leader/events/${id}/edit`, {method:'POST', body: fd});
                 if (!res.ok) {

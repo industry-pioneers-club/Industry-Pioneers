@@ -268,6 +268,9 @@ class Event(db.Model):
     # Phase 10: structured "نوع الفعالية" — one of EVENT_CATEGORIES. Nullable
     # for back-compat with pre-existing event rows that predate this column.
     category = db.Column(db.String(40), nullable=True)
+    # Optional venue name + maps URL for the event details page.
+    location_name = db.Column(db.String(200), nullable=True)
+    location_url = db.Column(db.String(500), nullable=True)
 
 
 # Phase 10: fixed vocabulary for the "نوع الفعالية" dropdown. The exact
@@ -907,6 +910,8 @@ def _upgrade_schema():
         # pre-existing event rows (created before this column existed)
         # survive the migration without a forced value.
         _ensure_sqlite_column("event", "category", "VARCHAR(40)", "NULL")
+        _ensure_sqlite_column("event", "location_name", "VARCHAR(200)", "NULL")
+        _ensure_sqlite_column("event", "location_url", "VARCHAR(500)", "NULL")
         # EventRegistration gains waitlist flags. Existing rows get is_waitlisted=0
         # (confirmed) via the DEFAULT clause, so historical data is never
         # silently reclassified. waitlisted_at stays NULL for confirmed rows.
@@ -1036,6 +1041,12 @@ def _upgrade_schema():
         # Phase 10: structured event category — ورش / زيارات / ملتقيات / مسابقات.
         db.session.execute(db.text(
             "ALTER TABLE event ADD COLUMN IF NOT EXISTS category VARCHAR(40)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS location_name VARCHAR(200)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS location_url VARCHAR(500)"
         ))
         db.session.execute(db.text(
             'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS interests VARCHAR(500)'
@@ -1497,6 +1508,13 @@ def _parse_iso_date(value):
         return datetime.strptime(value.strip(), "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _valid_http_url(v):
+    """True iff v is a non-empty string starting with http:// or https://.
+    Kept intentionally permissive so Google Maps, maps.app.goo.gl, and
+    any plain maps URL pass without extra parsing."""
+    return isinstance(v, str) and (v.startswith("http://") or v.startswith("https://"))
 
 
 def _int_or_none(v):
@@ -3600,6 +3618,14 @@ def create_event():
                 "error": "موعد إغلاق التسجيل يجب أن يكون قبل أو عند موعد الفعالية"
             }), 400
     tags_value = _tags_to_storage(data.get("tags"))
+    # Optional venue fields.
+    location_name = text_field(data, "location_name")[:200] or None
+    location_url_raw = text_field(data, "location_url")[:500]
+    location_url = None
+    if location_url_raw:
+        if not _valid_http_url(location_url_raw):
+            return jsonify({"error": "رابط الموقع يجب أن يبدأ بـ http:// أو https://"}), 400
+        location_url = location_url_raw
 
     event = Event(
         title=title,
@@ -3610,6 +3636,8 @@ def create_event():
         capacity=capacity,
         tags=tags_value,
         category=category,
+        location_name=location_name,
+        location_url=location_url,
     )
     db.session.add(event)
     db.session.commit()
@@ -3630,6 +3658,8 @@ def create_event():
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
         "category": event.category,
+        "location_name": event.location_name,
+        "location_url": event.location_url,
         "notified_members": notified,
     }), 201
 
@@ -3713,6 +3743,14 @@ def edit_event(event_id):
                 "error": "نوع الفعالية غير صالح. القيم المسموحة: " + "، ".join(EVENT_CATEGORIES)
             }), 400
         event.category = new_category or None
+    # Optional venue fields — empty string clears, non-empty replaces.
+    if "location_name" in data:
+        event.location_name = text_field(data, "location_name")[:200] or None
+    if "location_url" in data:
+        url_raw = text_field(data, "location_url")[:500]
+        if url_raw and not _valid_http_url(url_raw):
+            return jsonify({"error": "رابط الموقع يجب أن يبدأ بـ http:// أو https://"}), 400
+        event.location_url = url_raw or None
 
     was_public = event.is_public
     event.title = title
@@ -3761,6 +3799,8 @@ def edit_event(event_id):
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
         "category": event.category,
+        "location_name": event.location_name,
+        "location_url": event.location_url,
         "promoted": promoted_total,
         "notified_members": notified,
         "was_public": was_public,
