@@ -1148,8 +1148,13 @@ def initialize_database():
             db.create_all()
             _upgrade_schema()
             seed_if_empty()
-            seed_demo_leader()
-            seed_demo_supervisor()
+            # Demo leader/supervisor accounts are off by default so Vercel
+            # cold starts don't recreate them. Set SEED_DEMO_USERS=1 to
+            # opt back in for local development. Existing rows in the DB
+            # (yours and any previously seeded demos) are never deleted.
+            if os.environ.get("SEED_DEMO_USERS", "0") == "1":
+                seed_demo_leader()
+                seed_demo_supervisor()
         except (IntegrityError, OperationalError) as exc:
             db.session.rollback()
             logger.warning("initialize_database rolled back: %s", exc)
