@@ -23,10 +23,10 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__, instance_relative_config=True)
-import os
 
-app.instance_path = "/tmp/instance"
-os.makedirs(app.instance_path, exist_ok=True)logger = logging.getLogger(__name__)
+os.makedirs(app.instance_path, exist_ok=True)
+
+logger = logging.getLogger(__name__)
 
 
 def _database_uri():
