@@ -20,63 +20,28 @@
 <a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
 {% endif %}
 </template>
-    <style>
-        .sponsor-status{display:block;margin-top:4px;font-size:12px}
-        .sponsor-status-current{color:#1b7a3e}
-        .sponsor-status-previous{color:#888}
-    </style>
     <section class="banner">
         <h1>الشركاء والرعاة</h1>
         <span class="sub">شركاء النجاح الذين يدعمون رحلتنا</span>
     </section>
 
-    <!-- قسم الرعاة الحاليون -->
     <section class="sec">
         <div class="wrap">
             <h2 class="st">الرعاة</h2>
-            <div class="bar" style="margin-bottom:18px">
-                <button class="chip on" data-sponsor-filter="all">الكل</button>
-                <button class="chip" data-sponsor-filter="current">حاليون</button>
-                <button class="chip" data-sponsor-filter="previous">سابقون</button>
-            </div>
-            <div class="logos" id="sponsorsGrid">
-{% for sponsor in current_sponsors + previous_sponsors %}
-                {% set status_key = 'previous' if sponsor.is_previous else 'current' %}
-                <div class="lg" data-sponsor-status="{{ status_key }}">
+            <p class="sponsors-sub" style="margin:-6px 0 18px;color:#555">الشركاء السابقون</p>
+            <div class="logos">
+{% for sponsor in previous_sponsors %}
+                <div class="lg">
                     {% set src = sponsor.logo_path|static_image %}
                     {% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}
-                    <p>
-                        {{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}
-                        <small class="sponsor-status sponsor-status-{{ status_key }}">
-                            {{ 'شريك سابق' if sponsor.is_previous else 'راعٍ حالي' }}
-                        </small>
-                    </p>
+                    <p>{{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}</p>
                 </div>
 {% else %}
-                <p class="empty">لا يوجد رعاة.</p>
+                <p class="empty">لا يوجد شركاء سابقون.</p>
 {% endfor %}
             </div>
         </div>
     </section>
-
-    <script>
-    (function(){
-        var grid = document.getElementById('sponsorsGrid');
-        if (!grid) return;
-        var chips = document.querySelectorAll('[data-sponsor-filter]');
-        chips.forEach(function(c){
-            c.addEventListener('click', function(){
-                chips.forEach(function(x){ x.classList.remove('on'); });
-                c.classList.add('on');
-                var f = c.getAttribute('data-sponsor-filter');
-                grid.querySelectorAll('.lg').forEach(function(card){
-                    var s = card.getAttribute('data-sponsor-status');
-                    card.style.display = (f === 'all' || f === s) ? '' : 'none';
-                });
-            });
-        });
-    })();
-    </script>
 {% include "_footer.html" %}
 </body>
 </html>
