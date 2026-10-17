@@ -4294,5 +4294,42 @@ def healthz():
     return jsonify({"status": "ok"})
 
 
+@app.get("/leader/db-info")
+@role_required("leader", "supervisor")
+def db_info():
+    """Leader/supervisor-only read-only probe. Reports which backend
+    SQLAlchemy is actually talking to on this deploy, with the host
+    redacted enough that no secret is exposed. Also runs a trivial
+    SELECT to confirm the connection is live. No writes."""
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI", "") or ""
+    dialect = (uri.split("://", 1)[0] or "unknown").split("+", 1)[0]
+    host_hint = ""
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(uri)
+        hostname = parts.hostname or ""
+        if hostname:
+            # Keep enough to recognize the Neon project (ep-xxxx) but
+            # never show user/password or query string.
+            labels = hostname.split(".")
+            head = labels[0]
+            tld = ".".join(labels[-2:]) if len(labels) >= 2 else ""
+            host_hint = f"{head[:12]}***.{tld}" if head and tld else "***"
+    except Exception:   # noqa: BLE001 — never let a probe crash
+        host_hint = "***"
+    live = False
+    try:
+        db.session.execute(db.text("SELECT 1")).scalar()
+        live = True
+    except Exception as exc:   # noqa: BLE001
+        logger.warning("db-info SELECT 1 failed: %s", exc)
+    return jsonify({
+        "dialect": dialect,
+        "host_hint": host_hint,
+        "database_url_set": bool(os.environ.get("DATABASE_URL")),
+        "live": live,
+    })
+
+
 if __name__ == "__main__":
     app.run(debug=True)
