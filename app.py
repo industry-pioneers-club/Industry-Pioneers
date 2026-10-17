@@ -24,17 +24,62 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__, instance_relative_config=True)
 
-os.makedirs(app.instance_path, exist_ok=True)
-
 logger = logging.getLogger(__name__)
 
 
+def _writable_dir():
+    """Return a directory the app can write to.
+
+    - On a normal host (local dev, Render, etc.) `app.instance_path`
+      lives inside the project tree and is writable → use it.
+    - On a serverless host with a read-only package filesystem
+      (Vercel, AWS Lambda) `app.instance_path` is read-only but `/tmp`
+      is writable (and ephemeral per cold-start) → fall back to it.
+
+    The result is cached on the Flask app so every subsequent call is
+    cheap and consistent.
+    """
+    cached = getattr(app, "_writable_dir", None)
+    if cached:
+        return cached
+
+    # Explicit override wins — ops can point at any writable mount.
+    override = os.environ.get("INSTANCE_DIR", "").strip()
+    candidates = []
+    if override:
+        candidates.append(override)
+    candidates.append(app.instance_path)
+    # Honor $TMPDIR, then fall back to /tmp (POSIX) or the system temp dir.
+    candidates.append(os.environ.get("TMPDIR") or "/tmp")
+
+    for path in candidates:
+        try:
+            os.makedirs(path, exist_ok=True)
+            # Prove the dir really is writable with a one-byte probe.
+            probe = os.path.join(path, ".write_probe")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("x")
+            os.remove(probe)
+            app._writable_dir = path
+            return path
+        except OSError:
+            continue
+    # Last resort — tempfile.gettempdir() always exists.
+    import tempfile
+    path = tempfile.gettempdir()
+    app._writable_dir = path
+    return path
+
+
 def _database_uri():
-    # DATABASE_URL overrides the local file for tests. Default is instance/club.db.
+    # DATABASE_URL overrides the local file (REQUIRED on serverless hosts
+    # like Vercel where /tmp is wiped between invocations). Default is a
+    # SQLite file in the writable dir — fine for local dev and single-worker
+    # Render deployments; emphatically NOT fine on Vercel.
     uri = os.environ.get("DATABASE_URL", "").strip()
     if not uri:
-        return "sqlite:///" + os.path.join(app.instance_path, "club.db")
-    # Render Postgres URLs use postgres://, which SQLAlchemy does not accept.
+        return "sqlite:///" + os.path.join(_writable_dir(), "club.db")
+    # Render / Heroku Postgres URLs use postgres://, which SQLAlchemy does not accept.
     if uri.startswith("postgres://"):
         return "postgresql://" + uri[len("postgres://") :]
     return uri
@@ -75,10 +120,19 @@ _ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 
 
 def _article_upload_dir():
-    """Absolute path to the article-image upload folder; created on demand."""
+    """Absolute path to the article-image upload folder; created on demand.
+    Falls back to the writable dir (/tmp on serverless) if static/ is
+    read-only, so an article upload never crashes the whole request.
+    Caveat: files written to /tmp on Vercel disappear between invocations;
+    for persistent image uploads use a real object store (S3, R2, etc.)."""
     full = os.path.join(app.static_folder, _UPLOAD_ARTICLES_REL)
-    os.makedirs(full, exist_ok=True)
-    return full
+    try:
+        os.makedirs(full, exist_ok=True)
+        return full
+    except OSError:
+        fallback = os.path.join(_writable_dir(), _UPLOAD_ARTICLES_REL)
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
 
 
 def _is_allowed_image(filename):
@@ -778,7 +832,7 @@ def _upgrade_schema():
         # created or marked as current afterwards.
         _ensure_sqlite_column("sponsor", "is_previous",
                               "BOOLEAN NOT NULL", "0")
-        _marker = os.path.join(app.instance_path, ".sponsor_backfill_v1")
+        _marker = os.path.join(_writable_dir(), ".sponsor_backfill_v1")
         if not os.path.exists(_marker):
             db.session.execute(db.text("UPDATE sponsor SET is_previous = 1"))
             db.session.commit()
@@ -906,7 +960,7 @@ def _upgrade_schema():
             "ALTER TABLE sponsor ADD COLUMN IF NOT EXISTS is_previous "
             "BOOLEAN NOT NULL DEFAULT FALSE"
         ))
-        _marker_pg = os.path.join(app.instance_path, ".sponsor_backfill_v1")
+        _marker_pg = os.path.join(_writable_dir(), ".sponsor_backfill_v1")
         if not os.path.exists(_marker_pg):
             db.session.execute(db.text("UPDATE sponsor SET is_previous = TRUE"))
             try:
@@ -929,29 +983,64 @@ def _upgrade_schema():
 def initialize_database():
     # One worker at a time. The next worker then sees the rows and skips seeding.
     # IntegrityError covers a unique-email race if the lock is unavailable.
-    lock_path = os.path.join(app.instance_path, ".seed.lock")
-    lock_file = open(lock_path, "a", encoding="utf-8")
+    # On a read-only filesystem the lock file cannot be created; in that
+    # case we skip the file-lock (serverless hosts only ever have one
+    # worker per invocation anyway) and still run the init path.
+    lock_path = os.path.join(_writable_dir(), ".seed.lock")
+    lock_file = None
     locked = False
     try:
-        if fcntl is not None:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            locked = True
+        try:
+            lock_file = open(lock_path, "a", encoding="utf-8")
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                locked = True
+        except OSError as exc:
+            logger.warning("seed lock unavailable (%s); proceeding without it", exc)
         try:
             db.create_all()
             _upgrade_schema()
             seed_if_empty()
             seed_demo_leader()
             seed_demo_supervisor()
-        except (IntegrityError, OperationalError):
+        except (IntegrityError, OperationalError) as exc:
             db.session.rollback()
+            logger.warning("initialize_database rolled back: %s", exc)
     finally:
-        if locked:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        lock_file.close()
+        if lock_file is not None:
+            if locked and fcntl is not None:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            lock_file.close()
 
 
-with app.app_context():
-    initialize_database()
+# Boot-time initialization. We wrap in try/except so a database that is
+# briefly unreachable (serverless cold-start on an external Postgres,
+# say) doesn't prevent the Flask app itself from importing — the first
+# request will retry via the before-request hook below.
+_db_ready = False
+try:
+    with app.app_context():
+        initialize_database()
+        _db_ready = True
+except Exception as _db_init_exc:   # noqa: BLE001 — boot must not crash
+    logger.exception("initialize_database failed at import: %s", _db_init_exc)
+
+
+@app.before_request
+def _ensure_db_ready():
+    """Retry schema init once per cold start if boot-time init failed."""
+    global _db_ready
+    if _db_ready:
+        return
+    try:
+        with app.app_context():
+            initialize_database()
+            _db_ready = True
+    except Exception as exc:   # noqa: BLE001
+        logger.exception("deferred initialize_database failed: %s", exc)
 
 
 def public_events():
