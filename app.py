@@ -1522,8 +1522,17 @@ def register():
         return jsonify({"error": "name, email, and password are required"}), 400
     if User.query.filter_by(email=email).first() is not None:
         return jsonify({"error": "Email already registered"}), 409
-    # Role comes from the invite code only. Ignore any client-supplied role.
-    role = "member" if invite_grants_member(data.get("invite_code")) else "visitor"
+    # Role comes from either (a) a valid invite code, or (b) an existing
+    # approved MembershipRequest for the same email. Any client-supplied
+    # role is ignored.
+    has_invite = invite_grants_member(data.get("invite_code"))
+    has_approved_request = (
+        MembershipRequest.query
+        .filter_by(email=email, status="approved")
+        .first()
+        is not None
+    )
+    role = "member" if (has_invite or has_approved_request) else "visitor"
     user = User(
         name=name,
         email=email,
@@ -2313,11 +2322,20 @@ def approve_membership_request(req_id):
     mr.status = "approved"
     mr.reviewed_by = current_user.id
     mr.reviewed_at = datetime.now()
+    # If the applicant already registered (same email), promote them to member
+    # so their next login lands on /member/profile instead of the visitor view.
+    promoted_user_id = None
+    if mr.email:
+        existing = User.query.filter_by(email=mr.email).first()
+        if existing is not None and existing.role == "visitor":
+            existing.role = "member"
+            promoted_user_id = existing.id
     db.session.commit()
     return jsonify({
         "id": mr.id,
         "status": mr.status,
-        "note": "لم يُنشأ حساب تلقائياً. يجب على المتقدم التسجيل عبر /signup باستخدام رمز الدعوة.",
+        "promoted_user_id": promoted_user_id,
+        "note": "تمت الموافقة. إذا كان المتقدم مسجلاً بنفس البريد فسيُفعَّل كعضو تلقائياً، وإلا يمكنه التسجيل عبر /signup برمز الدعوة.",
     })
 
 
