@@ -562,7 +562,12 @@
                                     <span style="color:#888;font-size:12px">— لا توجد مهام</span>
                                 {% endif %}
                             </td>
-                            <td>{{ ev.image_path or '—' }}</td>
+                            <td>
+                                {% set thumb = ev.image_path|static_image %}
+                                {% if thumb %}
+                                    <img src="{{ thumb }}" alt="" style="max-width:72px;max-height:48px;border-radius:6px;border:1px solid #e5e7eb">
+                                {% else %}—{% endif %}
+                            </td>
                             <td>
                                 <div class="dashboard-actions">
                                     <button class="dashboard-action" data-edit-event="{{ ev.id }}">تعديل</button>

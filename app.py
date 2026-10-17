@@ -9,7 +9,7 @@ try:
 except ImportError:  # Non-Unix interpreters have no file locks.
     fcntl = None
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -164,6 +164,35 @@ def _is_allowed_image(filename):
     return ext in _ALLOWED_IMAGE_EXTENSIONS
 
 
+_IMAGE_MIME_BY_EXT = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+def _save_event_image_upload(file_storage):
+    """Persist an uploaded event cover into the EventImage table and
+    return the virtual path ('event-image/<id>') to store on the Event
+    row. Returns (path, None) on success or (None, error_message)
+    on validation failure. Flask's MAX_CONTENT_LENGTH (5MB) already
+    caps the request body, so no extra size check is needed here."""
+    if file_storage is None or not file_storage.filename:
+        return None, None
+    if not _is_allowed_image(file_storage.filename):
+        return None, "نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP."
+    ext = file_storage.filename.rsplit(".", 1)[-1].lower()
+    mime = _IMAGE_MIME_BY_EXT.get(ext, "application/octet-stream")
+    blob = file_storage.read()
+    if not blob:
+        return None, "الملف المرفوع فارغ."
+    img = EventImage(mime=mime, data=blob)
+    db.session.add(img)
+    db.session.flush()   # populate img.id without committing yet
+    return f"event-image/{img.id}", None
+
+
 def _safe_static_rel(path):
     if not isinstance(path, str):
         return None
@@ -173,8 +202,19 @@ def _safe_static_rel(path):
     return rel
 
 
+_EVENT_IMAGE_PREFIX = "event-image/"
+
+
 @app.template_filter("static_image")
 def static_image(path):
+    # Virtual path for uploaded event covers stored in the DB. The actual
+    # bytes are served by serve_event_image(). We don't verify existence
+    # here to keep this filter cheap on list pages — a broken reference
+    # just renders a missing image, same as the legacy static-file path.
+    if isinstance(path, str) and path.startswith(_EVENT_IMAGE_PREFIX):
+        tail = path[len(_EVENT_IMAGE_PREFIX):]
+        if tail.isdigit():
+            return url_for("serve_event_image", image_id=int(tail))
     rel = _safe_static_rel(path)
     if rel is None or not os.path.isfile(os.path.join(app.static_folder, rel)):
         return None
@@ -234,6 +274,18 @@ class Event(db.Model):
 # strings here MUST match the labels of the filter chips in events.html
 # so the chip filter can compare against Event.category directly.
 EVENT_CATEGORIES = ["ورش", "زيارات", "ملتقيات", "مسابقات"]
+
+
+class EventImage(db.Model):
+    """Binary storage for event cover images uploaded via the leader form.
+    Kept in a separate table so list queries over Event don't pay the
+    blob cost. One row per uploaded image; Event.image_path references
+    it via the virtual path 'event-image/<id>' which the static_image
+    filter resolves to /events/<id>/image."""
+    id = db.Column(db.Integer, primary_key=True)
+    mime = db.Column(db.String(60), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
 
 class Article(db.Model):
@@ -1188,6 +1240,19 @@ def partners_page():
         current_sponsors=[s for s in all_sponsors if not s.is_previous],
         previous_sponsors=[s for s in all_sponsors if s.is_previous],
     )
+
+
+@app.get("/events/<int:image_id>/image")
+def serve_event_image(image_id):
+    """Serve the binary bytes for an uploaded event cover. Backed by the
+    EventImage table so uploads persist across Vercel invocations
+    (serverless filesystems are ephemeral; the DB is not)."""
+    img = db.session.get(EventImage, image_id)
+    if img is None:
+        abort(404)
+    resp = Response(img.data, mimetype=img.mime)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @app.get("/visitor")
@@ -3500,13 +3565,22 @@ def create_event():
         return jsonify({"error": "التاريخ أو الوقت غير صالح (الصيغة YYYY-MM-DD و HH:MM)"}), 400
     raw_public = data.get("is_public")
     is_public = str(raw_public).lower() in ("1", "true", "on", "yes") if raw_public is not None else False
-    logo_input = text_field(data, "image_path")
+    # Image: prefer an uploaded file (field name "image"); fall back to the
+    # legacy "image_path" text field pointing at a file inside static/.
     image_path = None
-    if logo_input:
-        rel = _safe_static_rel(logo_input)
-        if rel is None or not _static_file_exists(rel):
-            return jsonify({"error": "image_path يجب أن يشير إلى ملف موجود داخل static/"}), 400
-        image_path = rel
+    uploaded = request.files.get("image")
+    virtual, up_err = _save_event_image_upload(uploaded)
+    if up_err:
+        return jsonify({"error": up_err}), 400
+    if virtual:
+        image_path = virtual
+    else:
+        logo_input = text_field(data, "image_path")
+        if logo_input:
+            rel = _safe_static_rel(logo_input)
+            if rel is None or not _static_file_exists(rel):
+                return jsonify({"error": "image_path يجب أن يشير إلى ملف موجود داخل static/"}), 400
+            image_path = rel
     # Phase 6: optional capacity / registration deadline / tags.
     capacity = _int_or_none(data.get("capacity"))
     if capacity is not None and capacity < 0:
@@ -3585,9 +3659,18 @@ def edit_event(event_id):
     is_public = (str(raw_public).lower() in ("1", "true", "on", "yes")
                  if raw_public is not None else event.is_public)
 
-    # Optional image path. Empty string clears the image; a non-empty
-    # value must point at an existing file inside static/.
-    if "image_path" in data:
+    # Image handling. Priority:
+    #   1) If a file was uploaded (multipart field "image"), replace.
+    #   2) Else if the client sent "image_path" (legacy static path):
+    #        empty string → clear; non-empty → must resolve inside static/.
+    #   3) Else leave the current image untouched.
+    uploaded = request.files.get("image")
+    virtual, up_err = _save_event_image_upload(uploaded)
+    if up_err:
+        return jsonify({"error": up_err}), 400
+    if virtual:
+        event.image_path = virtual
+    elif "image_path" in data:
         logo_input = text_field(data, "image_path")
         if logo_input == "":
             event.image_path = None

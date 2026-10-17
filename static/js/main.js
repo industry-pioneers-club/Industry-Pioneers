@@ -202,6 +202,17 @@ if (leaderPage) {
         obs.observe(m, { attributes: true, attributeFilter: ['class'] });
     };
 
+    // Resolve a stored Event.image_path to a browsable URL for the modal
+    // preview. Supports both the DB-backed virtual path 'event-image/<id>'
+    // (served by /events/<id>/image) and legacy static-folder paths.
+    const resolveEventImageUrl = (p) => {
+        if (!p) return '';
+        if (p.indexOf('event-image/') === 0) {
+            return '/events/' + p.slice('event-image/'.length) + '/image';
+        }
+        return '/static/' + p.replace(/^\/+/, '');
+    };
+
     /* -------- ADD EVENT (real backend) --------
        Collects only the fields the Event model stores:
        title, date, time, is_public, image_path. */
@@ -263,14 +274,26 @@ if (leaderPage) {
                     <span>عرض الفعالية على الصفحة العامة</span>
                 </label>
 
-                <label>مسار الشعار (داخل static/ — اختياري)</label>
-                <input id="newEventImagePath" placeholder="Image/event-4.png">
-                <p style="font-size:13px;color:#666;margin:4px 0 0">يجب أن يكون المسار لملف موجود داخل مجلد static/. مثال: <code>Image/event-4.png</code></p>
+                <label>صورة الفعالية <span style="font-weight:400;color:#888">(اختياري — JPG / PNG / WEBP، الحد الأقصى 5MB)</span></label>
+                <input id="newEventImageFile" type="file" accept="image/jpeg,image/png,image/webp">
+                <div id="newEventImagePreview" style="margin-top:10px;display:none">
+                    <img alt="معاينة" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #e5e7eb">
+                </div>
 
                 <button class="btn btn-o" id="saveNewEvent">حفظ الفعالية</button>
             </div>
         `);
         applyEvModalScope();
+        // Live preview for the new-event image picker.
+        const newImgInput = $('#newEventImageFile');
+        const newImgPrev = $('#newEventImagePreview');
+        newImgInput?.addEventListener('change', () => {
+            const f = newImgInput.files && newImgInput.files[0];
+            if (!f) { newImgPrev.style.display = 'none'; return; }
+            const img = newImgPrev.querySelector('img');
+            img.src = URL.createObjectURL(f);
+            newImgPrev.style.display = 'block';
+        });
         $('#saveNewEvent').onclick = async () => {
             const title = $('#newEventName').value.trim();
             const category = $('#newEventCategory').value;
@@ -295,8 +318,8 @@ if (leaderPage) {
             if (cap !== '') fd.append('capacity', cap);
             const tags = $('#newEventTags').value.trim();
             if (tags) fd.append('tags', tags);
-            const img = $('#newEventImagePath').value.trim();
-            if (img) fd.append('image_path', img);
+            const imgFile = newImgInput && newImgInput.files && newImgInput.files[0];
+            if (imgFile) fd.append('image', imgFile);
             try {
                 const res = await fetch('/leader/events', {method:'POST', body: fd});
                 if (!res.ok) {
@@ -384,10 +407,16 @@ if (leaderPage) {
                     <span>فعالية عامة (ظاهرة للزوار وقابلة للتسجيل)</span>
                 </label>
 
-                <label style="margin-top:14px">مسار الصورة داخل static/ (اختياري)</label>
-                <input id="editEventImage" type="text" value="${imageAttr}"
-                       placeholder="مثال: Image/event-4.png">
-                <small style="color:#666">اتركه فارغاً لإزالة الصورة.</small>
+                <label style="margin-top:14px">صورة الفعالية <span style="font-weight:400;color:#888">(JPG / PNG / WEBP — اختر صورة جديدة لاستبدال الحالية)</span></label>
+                <input id="editEventImageFile" type="file" accept="image/jpeg,image/png,image/webp">
+                <div id="editEventImagePreview" style="margin-top:10px;${image ? '' : 'display:none'}">
+                    <img alt="الصورة الحالية" src="${imageAttr ? resolveEventImageUrl(image) : ''}"
+                         style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #e5e7eb">
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+                    <input id="editEventImageRemove" type="checkbox" style="width:auto;height:auto;margin:0">
+                    <span>إزالة الصورة الحالية</span>
+                </label>
 
                 <div class="row" style="margin-top:16px">
                     <button class="btn btn-o" id="saveEventEdit">حفظ التعديل</button>
@@ -396,6 +425,28 @@ if (leaderPage) {
             </div>
         `);
         applyEvModalScope();
+        // Live preview: when the user picks a new file, show it.
+        const editImgInput = $('#editEventImageFile');
+        const editImgPrev = $('#editEventImagePreview');
+        const editImgRemove = $('#editEventImageRemove');
+        editImgInput?.addEventListener('change', () => {
+            const f = editImgInput.files && editImgInput.files[0];
+            if (!f) return;
+            const img = editImgPrev.querySelector('img');
+            img.src = URL.createObjectURL(f);
+            editImgPrev.style.display = 'block';
+            if (editImgRemove) editImgRemove.checked = false;
+        });
+        editImgRemove?.addEventListener('change', () => {
+            if (editImgRemove.checked) {
+                editImgPrev.style.display = 'none';
+                if (editImgInput) editImgInput.value = '';
+            } else if (image) {
+                const img = editImgPrev.querySelector('img');
+                img.src = resolveEventImageUrl(image);
+                editImgPrev.style.display = 'block';
+            }
+        });
         $('#saveEventEdit').onclick = async () => {
             const newTitle = $('#editEventTitle').value.trim();
             const newCategory = $('#editEventCategory').value;
@@ -410,7 +461,15 @@ if (leaderPage) {
             fd.append('date', newDate);
             fd.append('time', newTime);
             fd.append('is_public', $('#editEventPublic').checked ? '1' : '0');
-            fd.append('image_path', $('#editEventImage').value.trim());
+            // Image: send the new file if picked; else send image_path=""
+            // only when the user explicitly asked to remove; else send
+            // nothing so the backend preserves the existing image.
+            const editImgFile = editImgInput && editImgInput.files && editImgInput.files[0];
+            if (editImgFile) {
+                fd.append('image', editImgFile);
+            } else if (editImgRemove && editImgRemove.checked) {
+                fd.append('image_path', '');
+            }
             // Always submit these three so edits clear them when emptied.
             fd.append('registration_deadline_date', $('#editEventDeadlineDate').value);
             fd.append('registration_deadline_time', $('#editEventDeadlineTime').value || '23:59');
