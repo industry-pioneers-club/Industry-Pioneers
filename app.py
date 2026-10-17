@@ -79,10 +79,31 @@ def _database_uri():
     uri = os.environ.get("DATABASE_URL", "").strip()
     if not uri:
         return "sqlite:///" + os.path.join(_writable_dir(), "club.db")
-    # Render / Heroku Postgres URLs use postgres://, which SQLAlchemy does not accept.
+    # Normalize legacy Render / Heroku `postgres://` → `postgresql://`.
     if uri.startswith("postgres://"):
-        return "postgresql://" + uri[len("postgres://") :]
+        uri = "postgresql://" + uri[len("postgres://"):]
+    # Pin the psycopg (v3) driver explicitly. SQLAlchemy 2.x defaults to
+    # psycopg2 when it sees `postgresql://`, which we don't ship. Rewriting
+    # to `postgresql+psycopg://` tells SQLAlchemy to use psycopg v3 —
+    # the driver pinned in requirements.txt.
+    if uri.startswith("postgresql://"):
+        uri = "postgresql+psycopg://" + uri[len("postgresql://"):]
     return uri
+
+
+def _engine_options():
+    """Connection-pool settings tuned for serverless (short-lived workers
+    on Vercel) + managed Postgres (Neon). pool_pre_ping drops dead
+    connections after Neon's idle-timeout; pool_recycle keeps every
+    connection younger than 5 minutes so the SSL handshake stays fresh.
+    SQLite ignores these entirely."""
+    uri = os.environ.get("DATABASE_URL", "")
+    if not uri or uri.startswith("sqlite"):
+        return {}
+    return {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+    }
 
 
 def _secure_session_cookie():
@@ -101,6 +122,7 @@ if not _secret_key:
 app.config["SECRET_KEY"] = _secret_key
 app.config["SQLALCHEMY_DATABASE_URI"] = _database_uri()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = _engine_options()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # On when FLASK_ENV=production or Render sets RENDER=true. Off for local http.
@@ -960,13 +982,11 @@ def _upgrade_schema():
             "ALTER TABLE sponsor ADD COLUMN IF NOT EXISTS is_previous "
             "BOOLEAN NOT NULL DEFAULT FALSE"
         ))
-        _marker_pg = os.path.join(_writable_dir(), ".sponsor_backfill_v1")
-        if not os.path.exists(_marker_pg):
-            db.session.execute(db.text("UPDATE sponsor SET is_previous = TRUE"))
-            try:
-                open(_marker_pg, "w", encoding="utf-8").close()
-            except OSError:
-                pass
+        # NB: on Postgres we deliberately DO NOT run the one-shot
+        # UPDATE sponsor SET is_previous = TRUE. The SQLite→Postgres
+        # migration script copies the already-correct is_previous value
+        # for every row; running the UPDATE here would overwrite those
+        # explicit values on the first boot after the migration.
         db.session.execute(db.text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_event_match "
             "ON notification(event_id, recipient_user_id) "
