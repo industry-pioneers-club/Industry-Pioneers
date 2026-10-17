@@ -202,7 +202,13 @@ def _inject_shared_chrome():
         identity = ClubIdentity.query.first()
     except Exception:   # noqa: BLE001 — context processors must never raise
         identity = None
-    return {"club_identity": identity}
+    # Phase 10: event_categories is a plain Python list (no DB roundtrip);
+    # templates / inline scripts use it to render the "نوع الفعالية" select
+    # and the matching chip filter without hard-coding the vocabulary.
+    return {
+        "club_identity": identity,
+        "event_categories": EVENT_CATEGORIES,
+    }
 
 
 class Event(db.Model):
@@ -219,6 +225,15 @@ class Event(db.Model):
     # Phase 6: free-text comma-separated tags used to match user interests.
     # Stored lowercase; empty string on legacy rows is treated as "no tags".
     tags = db.Column(db.String(300), nullable=True)
+    # Phase 10: structured "نوع الفعالية" — one of EVENT_CATEGORIES. Nullable
+    # for back-compat with pre-existing event rows that predate this column.
+    category = db.Column(db.String(40), nullable=True)
+
+
+# Phase 10: fixed vocabulary for the "نوع الفعالية" dropdown. The exact
+# strings here MUST match the labels of the filter chips in events.html
+# so the chip filter can compare against Event.category directly.
+EVENT_CATEGORIES = ["ورش", "زيارات", "ملتقيات", "مسابقات"]
 
 
 class Article(db.Model):
@@ -607,9 +622,23 @@ def seed_if_empty():
         db.session.add(
             ClubIdentity(
                 name="نادي رواد الصناعة",
-                mission="Connect students with factory leaders and hands-on industry work.",
-                vision="A generation of engineers who build and lead local industry.",
-                description="Industry Pioneers Club hosts plant visits, talks, and projects with manufacturing partners.",
+                vision=(
+                    "أن يكون نادي رواد الصناعة بجامعة طيبة بيئة رائدة في تمكين "
+                    "طلابها وطالباتها، وتعزيز الابتكار في مجالات التصنيع والتقنيات "
+                    "الحديثة، بما يسهم في إعداد جيل جامعي متميز يقود الصناعة "
+                    "الوطنية ويدعم مستهدفات رؤية المملكة."
+                ),
+                mission=(
+                    "يسعى نادي رواد الصناعة إلى تمكين الطلاب والطالبات من اكتساب "
+                    "المهارات الصناعية والتقنية، وتعزيز الابتكار في مجالات التصنيع "
+                    "والتقنيات الحديثة، بما يدعم الصناعة الوطنية ويجهز الجيل "
+                    "القادر لقيادة المستقبل الصناعي في المملكة."
+                ),
+                description=(
+                    "نادي رواد الصناعة بجامعة طيبة — منصة طلابية تربط البيئة "
+                    "الأكاديمية بالقطاع الصناعي من خلال الزيارات الميدانية، "
+                    "والفعاليات، والمشاريع التطبيقية."
+                ),
             )
         )
         db.session.commit()
@@ -822,6 +851,10 @@ def _upgrade_schema():
         _ensure_sqlite_column("event", "capacity", "INTEGER", "NULL")
         _ensure_sqlite_column("event", "tags", "VARCHAR(300)", "NULL")
         _ensure_sqlite_column("user", "interests", "VARCHAR(500)", "NULL")
+        # Phase 10: event.category (one of EVENT_CATEGORIES). Nullable so
+        # pre-existing event rows (created before this column existed)
+        # survive the migration without a forced value.
+        _ensure_sqlite_column("event", "category", "VARCHAR(40)", "NULL")
         # EventRegistration gains waitlist flags. Existing rows get is_waitlisted=0
         # (confirmed) via the DEFAULT clause, so historical data is never
         # silently reclassified. waitlisted_at stays NULL for confirmed rows.
@@ -947,6 +980,10 @@ def _upgrade_schema():
         ))
         db.session.execute(db.text(
             "ALTER TABLE event ADD COLUMN IF NOT EXISTS tags VARCHAR(300)"
+        ))
+        # Phase 10: structured event category — ورش / زيارات / ملتقيات / مسابقات.
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS category VARCHAR(40)"
         ))
         db.session.execute(db.text(
             'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS interests VARCHAR(500)'
@@ -3430,6 +3467,14 @@ def create_event():
     title = text_field(data, "title")[:200]
     if not title:
         return jsonify({"error": "يرجى إدخال عنوان الفعالية"}), 400
+    # Phase 10: category is REQUIRED and must be one of EVENT_CATEGORIES.
+    category = text_field(data, "category")[:40]
+    if not category:
+        return jsonify({"error": "نوع الفعالية مطلوب"}), 400
+    if category not in EVENT_CATEGORIES:
+        return jsonify({
+            "error": "نوع الفعالية غير صالح. القيم المسموحة: " + "، ".join(EVENT_CATEGORIES)
+        }), 400
     date_raw = data.get("date")
     time_raw = data.get("time")
     event_dt = _parse_iso_datetime(date_raw, time_raw)
@@ -3472,6 +3517,7 @@ def create_event():
         registration_deadline=reg_deadline_dt,
         capacity=capacity,
         tags=tags_value,
+        category=category,
     )
     db.session.add(event)
     db.session.commit()
@@ -3491,6 +3537,7 @@ def create_event():
         ),
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
+        "category": event.category,
         "notified_members": notified,
     }), 201
 
@@ -3556,6 +3603,15 @@ def edit_event(event_id):
             event.registration_deadline = reg_deadline_dt
     if "tags" in data:
         event.tags = _tags_to_storage(data.get("tags"))
+    # Phase 10: category — accept only values in EVENT_CATEGORIES. Empty
+    # string clears (back to NULL) for parity with the other optional fields.
+    if "category" in data:
+        new_category = text_field(data, "category")[:40]
+        if new_category and new_category not in EVENT_CATEGORIES:
+            return jsonify({
+                "error": "نوع الفعالية غير صالح. القيم المسموحة: " + "، ".join(EVENT_CATEGORIES)
+            }), 400
+        event.category = new_category or None
 
     was_public = event.is_public
     event.title = title
@@ -3603,6 +3659,7 @@ def edit_event(event_id):
         ),
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
+        "category": event.category,
         "promoted": promoted_total,
         "notified_members": notified,
         "was_public": was_public,

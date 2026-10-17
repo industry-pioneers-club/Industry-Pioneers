@@ -485,7 +485,8 @@
 <script id="leader-dashboard-data" type="application/json">
 {
     "events": [{% for e in events %}{"id": {{ e.id }}, "title": {{ e.title|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
-    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}]
+    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    "event_categories": {{ event_categories|tojson }}
 }
 </script>
 
@@ -533,7 +534,8 @@
                             data-event-capacity="{{ ev.capacity if ev.capacity is not none else '' }}"
                             data-event-deadline-date="{{ ev.registration_deadline.strftime('%Y-%m-%d') if ev.registration_deadline else '' }}"
                             data-event-deadline-time="{{ ev.registration_deadline.strftime('%H:%M') if ev.registration_deadline else '' }}"
-                            data-event-tags="{{ ev.tags or '' }}">
+                            data-event-tags="{{ ev.tags or '' }}"
+                            data-event-category="{{ ev.category or '' }}">
                             <td>{{ ev.title }}</td>
                             <td data-event-date-cell>{{ ev.date.strftime('%Y-%m-%d') }}</td>
                             <td>{{ ev.date.strftime('%H:%M') }}</td>

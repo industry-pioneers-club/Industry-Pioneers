@@ -38,12 +38,50 @@ window.modal = modal;
 window.toast = toast;
 window.closeModal = closeModal;
 
-/* Event search and chips filter the server-rendered cards. */
+/* Event search + chip filter. The chip label matches Event.category
+   stored on each card via data-category (see events.html). Full-text
+   search still works across the card's visible text. */
 const evBox=$('#upcoming');
-if(evBox){let cat='الكل';const q=$('#q');
- const draw=()=>{const query=(q&&q.value?q.value:'').trim();['#upcoming','#previous'].forEach(sel=>{const box=$(sel);if(!box)return;const cards=$$('.ev',box);let shown=0;cards.forEach(card=>{const text=card.textContent||'';const ok=(cat==='الكل'||text.includes(cat))&&text.includes(query);card.style.display=ok?'':'none';if(ok)shown+=1});let note=$('.empty',box);if(!shown){if(!note){note=document.createElement('p');note.className='empty';note.textContent='لا توجد نتائج مطابقة';box.appendChild(note)}note.style.display=''}else if(note)note.style.display='none'})};
- $$('.chip').forEach(b=>b.onclick=()=>{$$('.chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');cat=b.textContent;draw()});
- if(q)q.oninput=draw}
+if(evBox){
+    let cat='الكل';
+    const q=$('#q');
+    const draw=()=>{
+        const query=(q&&q.value?q.value:'').trim();
+        ['#upcoming','#previous'].forEach(sel=>{
+            const box=$(sel);if(!box)return;
+            const cards=$$('.ev',box);
+            let shown=0;
+            cards.forEach(card=>{
+                const cardCat = (card.dataset.category || '').trim();
+                const text = card.textContent || '';
+                const matchesCat = (cat === 'الكل') || (cardCat === cat);
+                const matchesQuery = !query || text.includes(query);
+                const ok = matchesCat && matchesQuery;
+                card.style.display = ok ? '' : 'none';
+                if (ok) shown += 1;
+            });
+            let note=$('.empty',box);
+            if(!shown){
+                if(!note){
+                    note=document.createElement('p');
+                    note.className='empty';
+                    note.textContent='لا توجد نتائج مطابقة';
+                    box.appendChild(note);
+                }
+                note.style.display='';
+            } else if (note) {
+                note.style.display='none';
+            }
+        });
+    };
+    $$('.chip').forEach(b=>b.onclick=()=>{
+        $$('.chip').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on');
+        cat = (b.textContent || '').trim();
+        draw();
+    });
+    if(q) q.oninput = draw;
+}
 
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-article-id]');if(!b)return;const id=b.dataset.articleId;try{const res=await fetch('/like_article/'+id,{method:'POST',headers:{Accept:'application/json'}});if(!res.ok)return;const data=await res.json();const count=b.querySelector('span');if(count&&typeof data.likes_count==='number')count.textContent=data.likes_count;b.classList.add('on')}catch(err){}});
 
@@ -167,12 +205,27 @@ if (leaderPage) {
     /* -------- ADD EVENT (real backend) --------
        Collects only the fields the Event model stores:
        title, date, time, is_public, image_path. */
+    // Phase 10: canonical "نوع الفعالية" vocabulary — read from the server
+    // via the leader-dashboard-data JSON block so it stays in sync with
+    // app.py's EVENT_CATEGORIES without duplication in JS.
+    const EVENT_CATEGORIES = (leaderData.event_categories && leaderData.event_categories.length)
+        ? leaderData.event_categories
+        : ['ورش', 'زيارات', 'ملتقيات', 'مسابقات'];
+    const categoryOptions = (selected='') =>
+        '<option value="">— اختر نوع الفعالية —</option>' +
+        EVENT_CATEGORIES.map(c =>
+            `<option value="${c}"${selected === c ? ' selected' : ''}>${c}</option>`
+        ).join('');
+
     $('#addEventBtn')?.addEventListener('click',()=>{
         modal(`
             <h3>إنشاء فعالية جديدة</h3>
             <div class="dashboard-form">
                 <label>عنوان الفعالية *</label>
                 <input id="newEventName" placeholder="عنوان الفعالية" maxlength="200">
+
+                <label>نوع الفعالية *</label>
+                <select id="newEventCategory" required>${categoryOptions()}</select>
 
                 <div class="form-row">
                     <div>
@@ -220,12 +273,15 @@ if (leaderPage) {
         applyEvModalScope();
         $('#saveNewEvent').onclick = async () => {
             const title = $('#newEventName').value.trim();
+            const category = $('#newEventCategory').value;
             const date = $('#newEventDate').value;
             const time = $('#newEventTime').value;
             if (!title) return toast('يرجى إدخال عنوان الفعالية');
+            if (!category) return toast('نوع الفعالية مطلوب');
             if (!date) return toast('يرجى تحديد تاريخ الفعالية');
             const fd = new FormData();
             fd.append('title', title);
+            fd.append('category', category);
             fd.append('date', date);
             fd.append('time', time || '00:00');
             fd.append('is_public', $('#newEventIsPublic').checked ? '1' : '0');
@@ -277,6 +333,7 @@ if (leaderPage) {
         const deadlineDate = row.dataset.eventDeadlineDate || '';
         const deadlineTime = row.dataset.eventDeadlineTime || '';
         const tags = row.dataset.eventTags || '';
+        const category = row.dataset.eventCategory || '';
         const titleAttr = title.replace(/"/g, '&quot;');
         const imageAttr = image.replace(/"/g, '&quot;');
         const tagsAttr = tags.replace(/"/g, '&quot;');
@@ -288,6 +345,9 @@ if (leaderPage) {
             <div class="dashboard-form">
                 <label>عنوان الفعالية *</label>
                 <input id="editEventTitle" type="text" maxlength="200" value="${titleAttr}">
+
+                <label>نوع الفعالية *</label>
+                <select id="editEventCategory" required>${categoryOptions(category)}</select>
 
                 <div class="lb-field-row">
                     <div>
@@ -338,12 +398,15 @@ if (leaderPage) {
         applyEvModalScope();
         $('#saveEventEdit').onclick = async () => {
             const newTitle = $('#editEventTitle').value.trim();
+            const newCategory = $('#editEventCategory').value;
             const newDate = $('#editEventDate').value;
             const newTime = $('#editEventTime').value;
             if (!newTitle) return toast('يرجى إدخال عنوان الفعالية');
+            if (!newCategory) return toast('نوع الفعالية مطلوب');
             if (!newDate || !newTime) return toast('يرجى إدخال التاريخ والوقت');
             const fd = new FormData();
             fd.append('title', newTitle);
+            fd.append('category', newCategory);
             fd.append('date', newDate);
             fd.append('time', newTime);
             fd.append('is_public', $('#editEventPublic').checked ? '1' : '0');
