@@ -138,27 +138,7 @@ app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 5 MB
 db = SQLAlchemy(app)
 
 
-# Article-image upload constants. Files are stored under
-# static/uploads/articles/, and the DB keeps a path RELATIVE to static/
-# so url_for('static', filename=...) resolves cleanly.
-_UPLOAD_ARTICLES_REL = "uploads/articles"
 _ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
-
-
-def _article_upload_dir():
-    """Absolute path to the article-image upload folder; created on demand.
-    Falls back to the writable dir (/tmp on serverless) if static/ is
-    read-only, so an article upload never crashes the whole request.
-    Caveat: files written to /tmp on Vercel disappear between invocations;
-    for persistent image uploads use a real object store (S3, R2, etc.)."""
-    full = os.path.join(app.static_folder, _UPLOAD_ARTICLES_REL)
-    try:
-        os.makedirs(full, exist_ok=True)
-        return full
-    except OSError:
-        fallback = os.path.join(_writable_dir(), _UPLOAD_ARTICLES_REL)
-        os.makedirs(fallback, exist_ok=True)
-        return fallback
 
 
 def _is_allowed_image(filename):
@@ -197,6 +177,26 @@ def _save_event_image_upload(file_storage):
     return f"event-image/{img.id}", None
 
 
+def _save_article_image_upload(file_storage):
+    """Same contract as _save_event_image_upload but writes to
+    ArticleImage. Returns (virtual_path, None) on success,
+    (None, None) when no file was supplied, (None, error) on
+    validation failure."""
+    if file_storage is None or not file_storage.filename:
+        return None, None
+    if not _is_allowed_image(file_storage.filename):
+        return None, "نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP."
+    ext = file_storage.filename.rsplit(".", 1)[-1].lower()
+    mime = _IMAGE_MIME_BY_EXT.get(ext, "application/octet-stream")
+    blob = file_storage.read()
+    if not blob:
+        return None, "الملف المرفوع فارغ."
+    img = ArticleImage(mime=mime, data=blob)
+    db.session.add(img)
+    db.session.flush()
+    return f"article-image/{img.id}", None
+
+
 def _safe_static_rel(path):
     if not isinstance(path, str):
         return None
@@ -207,18 +207,25 @@ def _safe_static_rel(path):
 
 
 _EVENT_IMAGE_PREFIX = "event-image/"
+_ARTICLE_IMAGE_PREFIX = "article-image/"
 
 
 @app.template_filter("static_image")
 def static_image(path):
-    # Virtual path for uploaded event covers stored in the DB. The actual
-    # bytes are served by serve_event_image(). We don't verify existence
-    # here to keep this filter cheap on list pages — a broken reference
-    # just renders a missing image, same as the legacy static-file path.
-    if isinstance(path, str) and path.startswith(_EVENT_IMAGE_PREFIX):
-        tail = path[len(_EVENT_IMAGE_PREFIX):]
-        if tail.isdigit():
-            return url_for("serve_event_image", image_id=int(tail))
+    # Virtual paths for uploaded images stored in the DB. The actual bytes
+    # are served by serve_event_image / serve_article_image. We don't
+    # verify existence here to keep this filter cheap on list pages — a
+    # broken reference just renders a missing image, same as the legacy
+    # static-file path.
+    if isinstance(path, str):
+        if path.startswith(_EVENT_IMAGE_PREFIX):
+            tail = path[len(_EVENT_IMAGE_PREFIX):]
+            if tail.isdigit():
+                return url_for("serve_event_image", image_id=int(tail))
+        if path.startswith(_ARTICLE_IMAGE_PREFIX):
+            tail = path[len(_ARTICLE_IMAGE_PREFIX):]
+            if tail.isdigit():
+                return url_for("serve_article_image", image_id=int(tail))
     rel = _safe_static_rel(path)
     if rel is None or not os.path.isfile(os.path.join(app.static_folder, rel)):
         return None
@@ -289,6 +296,22 @@ class EventImage(db.Model):
     blob cost. One row per uploaded image; Event.image_path references
     it via the virtual path 'event-image/<id>' which the static_image
     filter resolves to /events/<id>/image."""
+    id = db.Column(db.Integer, primary_key=True)
+    mime = db.Column(db.String(60), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+
+class ArticleImage(db.Model):
+    """Binary storage for article cover images uploaded via the member
+    upload form. Vercel's filesystem is read-only outside /tmp (which is
+    ephemeral), so files written there vanish between invocations and
+    the UI renders the empty placeholder. Storing bytes in the DB keeps
+    uploaded images available across invocations.
+
+    Article.image_path references it via the virtual path
+    'article-image/<id>', resolved by the static_image filter to
+    /articles/<id>/image."""
     id = db.Column(db.Integer, primary_key=True)
     mime = db.Column(db.String(60), nullable=False)
     data = db.Column(db.LargeBinary, nullable=False)
@@ -1267,6 +1290,19 @@ def serve_event_image(image_id):
     return resp
 
 
+@app.get("/articles/<int:image_id>/image")
+def serve_article_image(image_id):
+    """Serve binary bytes for an uploaded article cover. Mirror of
+    serve_event_image — backed by the ArticleImage table so uploads
+    survive Vercel's ephemeral filesystem."""
+    img = db.session.get(ArticleImage, image_id)
+    if img is None:
+        abort(404)
+    resp = Response(img.data, mimetype=img.mime)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.get("/visitor")
 def visitor_portal():
     return render_template("visitor.html", events=public_events())
@@ -2019,34 +2055,17 @@ def upload_article():
                 form={"title": title, "category": category, "content": content},
             ), 400
 
-        # Optional image upload.
-        image_rel_path = None
-        file = request.files.get("image")
-        if file and file.filename:
-            if not _is_allowed_image(file.filename):
-                return render_template(
-                    "upload-article.html",
-                    categories=categories,
-                    error="نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP.",
-                    form={"title": title, "category": category, "content": content},
-                ), 400
-            # Safe unique filename: timestamp + sanitized basename.
-            from werkzeug.utils import secure_filename
-            ext = file.filename.rsplit(".", 1)[-1].lower()
-            safe_base = secure_filename(file.filename.rsplit(".", 1)[0])[:40] or "article"
-            stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            fname = f"{stamp}-{current_user.id}-{safe_base}.{ext}"
-            full = os.path.join(_article_upload_dir(), fname)
-            try:
-                file.save(full)
-            except OSError:
-                return render_template(
-                    "upload-article.html",
-                    categories=categories,
-                    error="تعذر حفظ الصورة. حاول مرة أخرى.",
-                    form={"title": title, "category": category, "content": content},
-                ), 500
-            image_rel_path = f"{_UPLOAD_ARTICLES_REL}/{fname}"
+        # Optional image upload. Persist bytes in the DB so uploads survive
+        # Vercel's ephemeral filesystem; the previous /tmp fallback silently
+        # lost files between invocations.
+        image_rel_path, img_err = _save_article_image_upload(request.files.get("image"))
+        if img_err:
+            return render_template(
+                "upload-article.html",
+                categories=categories,
+                error=img_err,
+                form={"title": title, "category": category, "content": content},
+            ), 400
 
         article = Article(
             title=title,
