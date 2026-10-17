@@ -298,9 +298,14 @@ img{
 .about .ph{
     border-radius:14px;
     overflow:hidden;
-    aspect-ratio:16/9;
-    background:linear-gradient(135deg,var(--pn),var(--ib));
+    background:#fff;
     box-shadow:0 10px 26px rgba(3,27,42,.18)
+}
+.about .ph img{
+    display:block;
+    width:100%;
+    height:auto;
+    object-fit:cover
 }
 
 .ph img{
