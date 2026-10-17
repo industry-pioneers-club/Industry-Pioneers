@@ -28,7 +28,27 @@
     <section class="sec">
         <div class="wrap">
             <h2 class="st">الرعاة</h2>
-            <p class="sponsors-sub" style="margin:-6px 0 18px;color:#555">الشركاء السابقون</p>
+            {% if current_sponsors %}
+            <div class="logos">
+{% for sponsor in current_sponsors %}
+                <div class="lg">
+                    {% set src = sponsor.logo_path|static_image %}
+                    {% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}
+                    <p>{{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}</p>
+                </div>
+{% endfor %}
+            </div>
+            {% else %}
+            <p class="empty" style="text-align:center;padding:36px 0;color:#777;font-size:16px">
+                لا يوجد رعاة حاليون حاليًا.
+            </p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="sec" style="padding-top:0">
+        <div class="wrap">
+            <h2 class="st">الشركاء السابقون</h2>
             <div class="logos">
 {% for sponsor in previous_sponsors %}
                 <div class="lg">
