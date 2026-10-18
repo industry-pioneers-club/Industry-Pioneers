@@ -1032,6 +1032,25 @@ if (supervisorPage) {
         msgBox.style.background = ok ? '#d4edda' : '#f8d7da';
         msgBox.style.color = ok ? '#155724' : '#721c24';
     };
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const showSuccessPopup = (email, committeeName) => {
+        if (typeof modal !== 'function') {
+            showMsg('تم استلام طلبك بنجاح. عند قبوله ستصلك رسالة على بريدك الإلكتروني فيها رابط لتفعيل حسابك.', true);
+            return;
+        }
+        if (msgBox) msgBox.style.display = 'none';
+        modal(`<div style="text-align:center">
+<div style="width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:#d4edda;display:grid;place-items:center">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px;stroke:#1e7e34;stroke-width:3"><polyline points="20 6 9 17 4 12"/></svg>
+</div>
+<h3 style="color:var(--pn);font-size:21px">تم إرسال طلبك بنجاح</h3>
+<p style="margin-top:10px;line-height:1.9;color:#444">شكراً لاهتمامك بالانضمام إلى نادي رواد الصناعة، سيراجع قائد ${committeeName ? `لجنة <strong style="color:var(--pn)">${esc(committeeName)}</strong>` : 'اللجنة'} طلبك قريباً.</p>
+<p style="margin-top:8px;line-height:1.9;color:#444">عند قبول طلبك ستصلك رسالة على بريدك الإلكتروني<br><strong dir="ltr" style="color:var(--pn);word-break:break-all">${esc(email)}</strong><br>فيها رابط لتعيين كلمة المرور وتفعيل حسابك.</p>
+<p style="margin-top:8px;font-size:13px;color:#777">إذا لم تجد الرسالة، تحقق من مجلد الرسائل غير المرغوب فيها (Spam).</p>
+<button type="button" class="btn btn-o" data-close style="margin-top:18px">حسناً</button>
+</div>`);
+    };
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = {
@@ -1039,12 +1058,18 @@ if (supervisorPage) {
             student_id: form.student_id.value.trim(),
             major: form.major.value.trim(),
             email: form.email.value.trim(),
+            committee_id: form.committee_id.value,
             reason: form.reason.value.trim(),
         };
         if (!payload.name || !payload.student_id || !payload.major || !payload.email) {
             showMsg('يرجى تعبئة الاسم والرقم الجامعي والتخصص والبريد الإلكتروني', false);
             return;
         }
+        if (!payload.committee_id) {
+            showMsg('يرجى اختيار اللجنة التي تريد الانضمام إليها', false);
+            return;
+        }
+        const committeeName = form.committee_id.selectedOptions[0]?.textContent.trim() || '';
         try {
             const res = await fetch('/visitor/membership-request', {
                 method: 'POST',
@@ -1055,7 +1080,7 @@ if (supervisorPage) {
             try { data = await res.json(); } catch (_) {}
             if (res.status === 201) {
                 form.reset();
-                showMsg('تم استلام طلبك بنجاح. عند قبوله ستصلك رسالة على بريدك الإلكتروني فيها رابط لتفعيل حسابك.', true);
+                showSuccessPopup(payload.email, committeeName);
             } else if (res.status === 409) {
                 showMsg(data.error || 'لديك طلب قيد المراجعة بالفعل', false);
             } else if (res.status === 400) {
@@ -1072,6 +1097,9 @@ if (supervisorPage) {
 (function () {
     const list = document.getElementById('membershipRequestsList');
     if (!list) return;
+    // Committee leaders review via /committee-leader/...; the club leader
+    // only handles legacy requests that have no committee.
+    const endpoint = list.dataset.endpoint || '/leader/membership-requests';
     const applyFilter = (filter) => {
         list.querySelectorAll('tr[data-membership-id]').forEach(row => {
             const show = (filter === 'all') || (row.dataset.status === filter);
@@ -1136,7 +1164,7 @@ if (supervisorPage) {
         if (!confirm(CONFIRM_MSG[action])) return;
         row.querySelectorAll('button').forEach(b => { b.disabled = true; });
         try {
-            const res = await fetch(`/leader/membership-requests/${reqId}/${action}`, {method:'POST'});
+            const res = await fetch(`${endpoint}/${reqId}/${action}`, {method:'POST'});
             let data = {};
             try { data = await res.json(); } catch (_) {}
             if (!res.ok) {
@@ -1415,44 +1443,6 @@ if (supervisorPage) {
             observer.observe(modalEl, { attributes: true, attributeFilter: ['class'] });
         } catch (_) {
             if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
-        }
-    });
-})();
-
-
-/* =========================================
-   PHASE 4 — COMMITTEE ASSIGNMENT UI
-   ========================================= */
-(function () {
-    document.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-save-committee]');
-        if (!btn) return;
-        e.preventDefault();
-        const userId = btn.dataset.saveCommittee;
-        const row = btn.closest('tr[data-committee-user-id]');
-        if (!row) return;
-        const input = row.querySelector(`[data-committee-input="${userId}"]`);
-        if (!input) return;
-        const value = input.value.trim();
-        btn.disabled = true;
-        try {
-            const fd = new FormData();
-            fd.append('committee', value);
-            const res = await fetch(`/leader/members/${userId}/committee`, {method:'POST', body: fd});
-            let data = {};
-            try { data = await res.json(); } catch (_) {}
-            if (!res.ok) {
-                if (typeof toast === 'function') toast(data.error || ('فشل الحفظ ('+res.status+')'));
-                btn.disabled = false;
-                return;
-            }
-            const cur = row.querySelector('[data-current-committee]');
-            if (cur) cur.textContent = data.committee || '—';
-            if (typeof toast === 'function') toast(value ? 'تم حفظ اللجنة' : 'تمت إزالة اللجنة');
-        } catch (_) {
-            if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
-        } finally {
-            btn.disabled = false;
         }
     });
 })();

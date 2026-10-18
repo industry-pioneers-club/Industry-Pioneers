@@ -820,6 +820,9 @@
                 {% else %}
                 اللجان التي تقودها ({{ led_committees|length }}) وأدِر أعضاءها.
                 {% endif %}
+                {% if pending_requests_count %}
+                <br><b style="color:#b9770e">{{ pending_requests_count }} طلب انضمام بانتظار مراجعتك</b>
+                {% endif %}
             </p>
             <a href="{{ url_for('committee_leader_members_page') }}" class="md-card-btn">
                 أعضاء اللجنة

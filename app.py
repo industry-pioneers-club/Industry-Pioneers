@@ -471,9 +471,10 @@ class ActivityLog(db.Model):
 
 class MembershipRequest(db.Model):
     """Phase 4: public membership applications from /visitor.
-    Leader-only review. This is the ONLY way to get an account: approval
-    emails the applicant a single-use link to /activate/<token>, where
-    they set a password and the member account is created."""
+    The applicant picks a committee and that committee's leader reviews
+    the request. This is the ONLY way to get an account: approval emails
+    the applicant a single-use link to /activate/<token>, where they set a
+    password and the member account is created inside that committee."""
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     student_id = db.Column(db.String(50), nullable=False)
@@ -494,8 +495,13 @@ class MembershipRequest(db.Model):
     # page, or an existing account linked on approval).
     activated_at = db.Column(db.DateTime, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    # Committee the applicant chose; its leader reviews the request. NULL
+    # for requests from before committees were in the form, or whose
+    # committee was deleted — those fall back to the club leader.
+    committee_id = db.Column(db.Integer, db.ForeignKey("committee.id"), nullable=True)
 
     reviewer = db.relationship("User", lazy="joined", foreign_keys=[reviewed_by])
+    committee = db.relationship("Committee", foreign_keys=[committee_id])
 
 
 class EventRegistration(db.Model):
@@ -1017,6 +1023,8 @@ def _upgrade_schema():
         _ensure_sqlite_column("membership_request", "activation_expires_at", "DATETIME", "NULL")
         _ensure_sqlite_column("membership_request", "activated_at", "DATETIME", "NULL")
         _ensure_sqlite_column("membership_request", "user_id", "INTEGER", "NULL")
+        # Requests are routed to the leader of the chosen committee.
+        _ensure_sqlite_column("membership_request", "committee_id", "INTEGER", "NULL")
         db.session.commit()
         _backfill_membership_accounts()
     elif dialect == "postgresql":
@@ -1172,6 +1180,10 @@ def _upgrade_schema():
         ))
         db.session.execute(db.text(
             "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS user_id INTEGER"
+        ))
+        # Requests are routed to the leader of the chosen committee.
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS committee_id INTEGER"
         ))
         db.session.commit()
         _backfill_membership_accounts()
@@ -1381,9 +1393,20 @@ def serve_article_image(image_id):
     return resp
 
 
+def _open_committees():
+    """Committees an applicant can pick: only those with a leader, since
+    the leader is the one who reviews the request."""
+    return (
+        Committee.query
+        .filter(Committee.leader_user_id.isnot(None))
+        .order_by(Committee.name.asc())
+        .all()
+    )
+
+
 @app.get("/visitor")
 def visitor_portal():
-    return render_template("visitor.html", events=public_events())
+    return render_template("visitor.html", events=public_events(), committees=_open_committees())
 
 
 @app.post("/visitor/membership-request")
@@ -1400,6 +1423,10 @@ def submit_membership_request():
         return jsonify({"error": "الاسم والرقم الجامعي والتخصص والبريد الإلكتروني مطلوبة"}), 400
     if not is_valid_email_format(email):
         return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
+    committee_id = _int_or_none(data.get("committee_id"))
+    committee = db.session.get(Committee, committee_id) if committee_id else None
+    if committee is None or committee.leader_user_id is None:
+        return jsonify({"error": "يرجى اختيار اللجنة التي تريد الانضمام إليها"}), 400
     existing_user = _user_by_email(email)
     if existing_user is not None and existing_user.role != "visitor":
         return jsonify({
@@ -1431,6 +1458,7 @@ def submit_membership_request():
         email=email,
         reason=reason,
         status="pending",
+        committee_id=committee.id,
     )
     db.session.add(mr)
     try:
@@ -1860,6 +1888,14 @@ def member_profile():
         .order_by(ActivityLog.recorded_at.desc())
         .all()
     )
+    led_committees = _committees_led_by(current_user)
+    pending_requests_count = (
+        MembershipRequest.query.filter(
+            MembershipRequest.committee_id.in_([c.id for c in led_committees]),
+            MembershipRequest.status == "pending",
+        ).count()
+        if led_committees else 0
+    )
     return render_template(
         "member-dashboard.html",
         points=pts,
@@ -1870,7 +1906,8 @@ def member_profile():
         interest_choices=INTEREST_CHOICES,
         # Phase 8: list of committees this user leads so the dashboard
         # can conditionally show the "أعضاء اللجنة" card.
-        led_committees=_committees_led_by(current_user),
+        led_committees=led_committees,
+        pending_requests_count=pending_requests_count,
     )
 
 
@@ -2640,6 +2677,7 @@ def _start_member_activation(mr):
     if existing is not None:
         if existing.role == "visitor":
             existing.role = "member"
+        _join_requested_committee(existing, mr)
         mr.user_id = existing.id
         mr.activated_at = datetime.now()
         mr.activation_token_hash = None
@@ -2651,8 +2689,19 @@ def _start_member_activation(mr):
     return _public_url("activate_account", token=token)
 
 
+def _join_requested_committee(user, mr):
+    """Place an accepted applicant in the committee they applied to,
+    unless they already belong to one (never move someone silently)."""
+    if mr.committee is None or user.committee_id is not None:
+        return
+    _assign_user_to_committee(user, mr.committee)
+
+
 def _send_membership_approval_email(mr, activation_url):
-    accepted = "يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة."
+    accepted = "يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة"
+    if mr.committee is not None:
+        accepted += f" ضمن لجنة <strong>{escape(mr.committee.name)}</strong>"
+    accepted += "."
     if activation_url:
         html = _email_html(mr.name, [
             accepted,
@@ -2705,14 +2754,9 @@ def _membership_activation_json(mr, activation_url, email_sent):
     })
 
 
-@app.post("/leader/membership-requests/<int:req_id>/approve")
-@role_required("leader")
-def approve_membership_request(req_id):
-    """Leader-only approval. Emails the applicant a link to set their
-    password; the member account is created when they use it."""
-    mr = db.session.get(MembershipRequest, req_id)
-    if mr is None:
-        abort(404)
+def _approve_membership(mr):
+    """Emails the applicant a link to set their password; the member
+    account is created (inside the chosen committee) when they use it."""
     if mr.status != "pending":
         return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
     if not mr.email:
@@ -2726,14 +2770,9 @@ def approve_membership_request(req_id):
     return _membership_activation_json(mr, activation_url, email_sent)
 
 
-@app.post("/leader/membership-requests/<int:req_id>/resend-activation")
-@role_required("leader")
-def resend_membership_activation(req_id):
+def _resend_membership_activation(mr):
     """Issue a fresh activation link (the previous one stops working) and
     email it again — for expired links or emails that never arrived."""
-    mr = db.session.get(MembershipRequest, req_id)
-    if mr is None:
-        abort(404)
     if mr.status != "approved":
         return jsonify({"error": "الطلب غير معتمد"}), 409
     if mr.activated_at is not None:
@@ -2798,6 +2837,7 @@ def activate_account(token):
         # Same email registered concurrently (e.g. a double-submit).
         db.session.rollback()
         return render_template("activate-account.html", mr=mr, error=account_exists), 409
+    _join_requested_committee(user, mr)
     mr.user_id = user.id
     mr.activated_at = datetime.now()
     mr.activation_token_hash = None
@@ -2806,12 +2846,7 @@ def activate_account(token):
     return redirect(url_for("login_form", activated=1))
 
 
-@app.post("/leader/membership-requests/<int:req_id>/reject")
-@role_required("leader")
-def reject_membership_request(req_id):
-    mr = db.session.get(MembershipRequest, req_id)
-    if mr is None:
-        abort(404)
+def _reject_membership(mr):
     if mr.status != "pending":
         return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
     mr.status = "rejected"
@@ -2835,6 +2870,44 @@ def reject_membership_request(req_id):
         ),
     ) if mr.email else False
     return jsonify({"id": mr.id, "status": mr.status, "email_sent": email_sent})
+
+
+_MEMBERSHIP_ACTIONS = {
+    "approve": _approve_membership,
+    "reject": _reject_membership,
+    "resend-activation": _resend_membership_activation,
+}
+
+
+def _review_membership(req_id, action, as_committee_leader):
+    """Run a review action if the current user may act on this request.
+    A request sent to a committee belongs to that committee's leader
+    alone. Requests with no committee (submitted before committees were
+    in the form, or whose committee was deleted) fall back to the club
+    leader, so they never get stuck."""
+    handler = _MEMBERSHIP_ACTIONS.get(action)
+    mr = db.session.get(MembershipRequest, req_id)
+    if handler is None or mr is None:
+        abort(404)
+    if as_committee_leader:
+        if mr.committee is None or mr.committee.leader_user_id != current_user.id:
+            return jsonify({"error": "يراجع هذا الطلبَ قائدُ اللجنة التي اختارها المتقدم فقط"}), 403
+    elif mr.committee is not None:
+        return jsonify({"error": "هذا الطلب يراجعه قائد اللجنة التي اختارها المتقدم"}), 403
+    return handler(mr)
+
+
+@app.post("/committee-leader/membership-requests/<int:req_id>/<action>")
+@login_required
+def committee_leader_review_membership(req_id, action):
+    return _review_membership(req_id, action, as_committee_leader=True)
+
+
+@app.post("/leader/membership-requests/<int:req_id>/<action>")
+@role_required("leader")
+def leader_review_membership(req_id, action):
+    """Club-leader fallback — only for requests without a committee."""
+    return _review_membership(req_id, action, as_committee_leader=False)
 
 
 def _award_points(user_id, action, points, **ref_ids):
@@ -3323,6 +3396,11 @@ def delete_committee(committee_id):
     for u in affected:
         u.committee_id = None
         u.committee = None
+    # Requests sent to this committee lose their reviewer; detaching them
+    # hands them to the club leader instead of leaving them stuck.
+    MembershipRequest.query.filter_by(committee_id=c.id).update(
+        {"committee_id": None}, synchronize_session=False
+    )
     db.session.delete(c)
     db.session.commit()
     return jsonify({
@@ -3331,16 +3409,21 @@ def delete_committee(committee_id):
     })
 
 
-@app.post("/leader/committees/<int:committee_id>/add-member")
+@app.post("/leader/committees/<int:committee_id>/move-member")
 @role_required("leader", "supervisor")
-def committee_add_member(committee_id):
+def committee_move_member(committee_id):
+    """Move a member who already belongs to another committee into this
+    one. Club leaders cannot add people to committees directly — members
+    join through membership requests reviewed by committee leaders."""
     c = db.session.get(Committee, committee_id)
     if c is None:
         abort(404)
     user_id = _int_or_none(submitted().get("user_id"))
     user = db.session.get(User, user_id) if user_id else None
     if not _eligible_member(user):
-        return jsonify({"error": "يُسمح فقط بإضافة أعضاء مسجلين"}), 400
+        return jsonify({"error": "يُسمح فقط بنقل أعضاء مسجلين"}), 400
+    if user.committee_id is None:
+        return jsonify({"error": "العضو ليس في أي لجنة. ينضم الأعضاء للجان عبر طلبات العضوية."}), 400
     if user.committee_id == c.id:
         return jsonify({"error": "العضو موجود بالفعل في هذه اللجنة"}), 409
     _assign_user_to_committee(user, c)
@@ -3393,44 +3476,20 @@ def committee_set_leader(committee_id):
     return jsonify({"committee_id": c.id, "leader_user_id": user.id})
 
 
-@app.post("/leader/members/<int:user_id>/committee")
-@role_required("leader", "supervisor")
-def set_member_committee(user_id):
-    """Legacy endpoint — preserved for backward compatibility with the
-    previous "committee as free-text string" workflow. Accepts a
-    committee NAME; if the committee doesn't exist, one is created on
-    the fly. Empty string / omitted → unassign."""
-    target = db.session.get(User, user_id)
-    if target is None:
-        abort(404)
-    if not _eligible_member(target):
-        return jsonify({"error": "لا يمكن تعيين لجنة إلا للأعضاء"}), 400
-    name = text_field(submitted(), "committee")[:120] or None
-    if name is None:
-        _assign_user_to_committee(target, None)
-    else:
-        committee = Committee.query.filter_by(name=name).first()
-        if committee is None:
-            committee = Committee(name=name)
-            db.session.add(committee)
-            db.session.flush()
-        _assign_user_to_committee(target, committee)
-    db.session.commit()
-    return jsonify({"id": target.id, "committee": target.committee})
-
-
 # ===========================================================
 # Phase 8 — Committee Leader Management (self-service)
 #
 # A "committee leader" is any logged-in user whose user.id matches at
 # least one Committee.leader_user_id. They get a scoped dashboard page
 # where they can:
+#   - review membership requests sent to their committee
 #   - view their committee's members
 #   - add existing registered members (visitors are rejected)
 #   - manually award points with a task description
 #
-# Club leaders + supervisors retain full access and can manage any committee.
-# All checks are enforced server-side on every request.
+# Club leaders + supervisors can view any committee and award points,
+# but reviewing requests and adding members is the committee leader's
+# alone. All checks are enforced server-side on every request.
 # ===========================================================
 
 def _committees_led_by(user):
@@ -3456,16 +3515,16 @@ def _is_club_admin(user):
     )
 
 
-def _get_managed_committee(committee_id):
+def _get_managed_committee(committee_id, leader_only=False):
     """Return (committee, error_response_tuple). The caller must either
-    hold a leader_user_id pointer at this committee OR be a club admin.
-    Otherwise 403."""
+    hold a leader_user_id pointer at this committee OR be a club admin
+    (unless leader_only). Otherwise 403."""
     c = db.session.get(Committee, committee_id)
     if c is None:
         return None, (jsonify({"error": "اللجنة غير موجودة"}), 404)
-    if _is_club_admin(current_user):
-        return c, None
     if c.leader_user_id == current_user.id:
+        return c, None
+    if _is_club_admin(current_user) and not leader_only:
         return c, None
     return None, (jsonify({"error": "ليست لديك صلاحية على هذه اللجنة"}), 403)
 
@@ -3503,11 +3562,25 @@ def committee_leader_members_page():
             .order_by(User.name.asc())
             .all()
         )
+    # Reviewing requests + adding members belong to the committee's own
+    # leader; club admins browsing the page see neither.
+    is_committee_leader = committee is not None and committee.leader_user_id == current_user.id
+    membership_requests = []
+    if is_committee_leader:
+        membership_requests = (
+            MembershipRequest.query
+            .filter_by(committee_id=committee.id)
+            .order_by(MembershipRequest.submitted_at.desc())
+            .all()
+        )
     return render_template(
         "committee-members.html",
         committee=committee,
         committees_managed=committees_managed,
         members=members,
+        is_committee_leader=is_committee_leader,
+        membership_requests=membership_requests,
+        pending_requests_count=sum(1 for m in membership_requests if m.status == "pending"),
         committee_leader=(
             db.session.get(User, committee.leader_user_id)
             if committee and committee.leader_user_id else None
@@ -3520,7 +3593,7 @@ def committee_leader_members_page():
 def committee_leader_eligible_members(committee_id):
     """List users eligible to be ADDED to this committee: role in
     (member, leader), currently unassigned (committee_id IS NULL)."""
-    _, err = _get_managed_committee(committee_id)
+    _, err = _get_managed_committee(committee_id, leader_only=True)
     if err is not None:
         return err
     rows = (
@@ -3542,7 +3615,7 @@ def committee_leader_eligible_members(committee_id):
 @app.post("/committee-leader/<int:committee_id>/add-member")
 @login_required
 def committee_leader_add_member(committee_id):
-    c, err = _get_managed_committee(committee_id)
+    c, err = _get_managed_committee(committee_id, leader_only=True)
     if err is not None:
         return err
     user_id = _int_or_none(submitted().get("user_id"))

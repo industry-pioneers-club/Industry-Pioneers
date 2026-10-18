@@ -1,0 +1,96 @@
+{#-
+   Membership-requests table shared by the club leader dashboard and the
+   committee leader page. Import with:
+     {% from "_membership_requests.html" import membership_requests_table %}
+
+   reviewer='committee' — the page lists only the leader's own committee,
+                          so every row can be approved / rejected.
+   reviewer='club'      — read-only overview of all requests, except legacy
+                          requests with no committee, which the club leader
+                          still reviews so they never get stuck.
+   Buttons are wired in static/js/main.js (#membershipRequestsList).
+-#}
+{% macro membership_requests_table(requests, reviewer) %}
+{% set show_committee = reviewer == 'club' %}
+<div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <strong style="color:#1b365d">عرض:</strong>
+    <button type="button" class="dashboard-action membership-filter active" data-filter="all">الكل</button>
+    <button type="button" class="dashboard-action membership-filter" data-filter="pending">قيد المراجعة</button>
+    <button type="button" class="dashboard-action membership-filter" data-filter="approved">معتمد</button>
+    <button type="button" class="dashboard-action membership-filter" data-filter="rejected">مرفوض</button>
+</div>
+<div class="table-wrapper">
+    <table class="dashboard-table">
+        <thead>
+            <tr>
+                <th>الاسم</th>
+                <th>الرقم الجامعي</th>
+                <th>التخصص</th>
+                {% if show_committee %}<th>اللجنة</th>{% endif %}
+                <th>البريد</th>
+                <th>تاريخ التقديم</th>
+                <th>الحالة</th>
+                <th>المراجع</th>
+                <th>الإجراءات</th>
+            </tr>
+        </thead>
+        <tbody id="membershipRequestsList"
+               data-endpoint="{{ '/committee-leader/membership-requests' if reviewer == 'committee' else '/leader/membership-requests' }}">
+            {% for m in requests %}
+            {% set can_review = reviewer == 'committee' or m.committee is none %}
+            <tr data-membership-id="{{ m.id }}" data-status="{{ m.status }}">
+                <td>{{ m.name }}</td>
+                <td>{{ m.student_id }}</td>
+                <td>{{ m.major }}</td>
+                {% if show_committee %}
+                <td>{{ m.committee.name if m.committee else '— طلب بدون لجنة' }}</td>
+                {% endif %}
+                <td>{{ m.email if m.email else '—' }}</td>
+                <td>{{ m.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td data-membership-status>
+                    {% if m.status == 'approved' %}
+                    <span class="dashboard-status status-approved">معتمد</span>
+                    {% if m.activated_at %}
+                    <br><small style="color:#27ae60">الحساب مفعّل</small>
+                    {% else %}
+                    <br><small style="color:#b9770e">بانتظار تفعيل الحساب</small>
+                    {% endif %}
+                    {% elif m.status == 'rejected' %}
+                    <span class="dashboard-status status-rejected">مرفوض</span>
+                    {% else %}
+                    <span class="dashboard-status status-pending">قيد المراجعة</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if m.reviewer %}
+                        {{ m.reviewer.name }}<br>
+                        <small style="color:#888">{{ m.reviewed_at.strftime('%Y-%m-%d %H:%M') if m.reviewed_at else '' }}</small>
+                    {% else %}—{% endif %}
+                </td>
+                <td data-membership-actions>
+                    {% set actions %}
+                    {% if can_review and m.status == 'pending' %}
+                    <button class="dashboard-action approve" data-approve-membership="{{ m.id }}">✓ اعتماد</button>
+                    <button class="dashboard-action reject" data-reject-membership="{{ m.id }}">✗ رفض</button>
+                    {% elif can_review and m.status == 'approved' and not m.activated_at and m.email %}
+                    <button type="button" class="dashboard-action" data-resend-activation="{{ m.id }}">إعادة إرسال رابط التفعيل</button>
+                    {% elif m.status == 'pending' %}
+                    <small style="color:#888">بانتظار مراجعة قائد اللجنة</small>
+                    {% endif %}
+                    {% if m.reason %}
+                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
+                    {% endif %}
+                    {% endset %}
+                    {% if actions|trim %}<div class="dashboard-actions">{{ actions }}</div>{% else %}—{% endif %}
+                    {% if m.reason %}
+                    <template data-reason-for="{{ m.id }}">{{ m.reason }}</template>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="{{ 9 if show_committee else 8 }}" style="text-align:center;color:#888">لا توجد طلبات انضمام بعد.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endmacro %}

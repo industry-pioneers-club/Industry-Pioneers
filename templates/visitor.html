@@ -281,6 +281,20 @@
                 <input type="text" id="member-major" name="major" maxlength="120" placeholder="أدخل تخصصك الأكاديمي" required>
             </div>
             <div class="form-group">
+                <label for="member-committee">اللجنة التي تريد الانضمام إليها</label>
+                <select id="member-committee" name="committee_id" required {% if not committees %}disabled{% endif %}>
+{% if committees %}
+                    <option value="">— اختر لجنة —</option>
+{% for c in committees %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+{% endfor %}
+{% else %}
+                    <option value="">لا توجد لجان متاحة للتقديم حالياً</option>
+{% endif %}
+                </select>
+                <small style="color:#666">يراجع طلبك قائد اللجنة التي تختارها.</small>
+            </div>
+            <div class="form-group">
                 <label for="member-email">البريد الإلكتروني</label>
                 <input type="email" id="member-email" name="email" maxlength="120" placeholder="example@email.com" required>
                 <small style="color:#666">عند قبول طلبك يصلك على هذا البريد رابط لتعيين كلمة المرور وتفعيل حسابك.</small>
@@ -289,7 +303,7 @@
                 <label for="member-reason">لماذا تريد الانضمام لنادي رواد الصناعة؟</label>
                 <textarea id="member-reason" name="reason" rows="4" maxlength="2000" placeholder="اكتب نبذة بسيطة عن سبب رغبتك بالانضمام"></textarea>
             </div>
-            <button type="submit" class="submit-btn">إرسال طلب الانضمام</button>
+            <button type="submit" class="submit-btn" {% if not committees %}disabled{% endif %}>إرسال طلب الانضمام</button>
         </form>
     </section>
 

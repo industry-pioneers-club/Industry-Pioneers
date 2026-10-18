@@ -708,14 +708,15 @@
 
 
     <!-- طلبات الانضمام للنادي -->
+    {% from "_membership_requests.html" import membership_requests_table %}
     <div class="dashboard-section">
         <div class="dashboard-heading">
             <div>
                 <h2 class="st">طلبات الانضمام للنادي</h2>
                 <p class="dashboard-description">
-                    مراجعة طلبات العضوية الواردة من بوابة الزوار.
-                    <strong>عند الاعتماد يصل للمتقدم بريد فيه رابط لتعيين كلمة المرور وتفعيل حسابه كعضو.
-                    يمكنك إعادة إرسال الرابط إذا انتهت صلاحيته أو لم يصل.</strong>
+                    متابعة طلبات العضوية الواردة من بوابة الزوار.
+                    <strong>يراجع كل طلب قائدُ اللجنة التي اختارها المتقدم، وعند قبوله ينضم العضو لتلك اللجنة.
+                    هذا القسم للمتابعة فقط، ما عدا الطلبات بدون لجنة (القديمة أو التي حُذفت لجنتها) فتراجعها من هنا.</strong>
                 </p>
                 <p style="margin-top:8px;color:#555">
                     قيد المراجعة: <strong>{{ membership_counts.pending }}</strong>
@@ -726,85 +727,7 @@
         </div>
 
         <div class="dashboard-card">
-            <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <strong style="color:#1b365d">عرض:</strong>
-                <button type="button" class="dashboard-action membership-filter active" data-filter="all">الكل</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="pending">قيد المراجعة</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="approved">معتمد</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="rejected">مرفوض</button>
-            </div>
-            <div class="table-wrapper">
-                <table class="dashboard-table">
-                    <thead>
-                        <tr>
-                            <th>الاسم</th>
-                            <th>الرقم الجامعي</th>
-                            <th>التخصص</th>
-                            <th>البريد</th>
-                            <th>تاريخ التقديم</th>
-                            <th>الحالة</th>
-                            <th>المراجع</th>
-                            <th>الإجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody id="membershipRequestsList">
-                        {% for m in membership_requests %}
-                        <tr data-membership-id="{{ m.id }}" data-status="{{ m.status }}">
-                            <td>{{ m.name }}</td>
-                            <td>{{ m.student_id }}</td>
-                            <td>{{ m.major }}</td>
-                            <td>{{ m.email if m.email else '—' }}</td>
-                            <td>{{ m.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                            <td data-membership-status>
-                                {% if m.status == 'approved' %}
-                                <span class="dashboard-status status-approved">معتمد</span>
-                                {% if m.activated_at %}
-                                <br><small style="color:#27ae60">الحساب مفعّل</small>
-                                {% else %}
-                                <br><small style="color:#b9770e">بانتظار تفعيل الحساب</small>
-                                {% endif %}
-                                {% elif m.status == 'rejected' %}
-                                <span class="dashboard-status status-rejected">مرفوض</span>
-                                {% else %}
-                                <span class="dashboard-status status-pending">قيد المراجعة</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if m.reviewer %}
-                                    {{ m.reviewer.name }}<br>
-                                    <small style="color:#888">{{ m.reviewed_at.strftime('%Y-%m-%d %H:%M') if m.reviewed_at else '' }}</small>
-                                {% else %}—{% endif %}
-                            </td>
-                            <td data-membership-actions>
-                                {% if m.status == 'pending' %}
-                                <div class="dashboard-actions">
-                                    <button class="dashboard-action approve" data-approve-membership="{{ m.id }}">✓ اعتماد</button>
-                                    <button class="dashboard-action reject" data-reject-membership="{{ m.id }}">✗ رفض</button>
-                                    {% if m.reason %}
-                                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
-                                    {% endif %}
-                                </div>
-                                {% elif m.status == 'approved' and not m.activated_at and m.email %}
-                                <div class="dashboard-actions">
-                                    <button type="button" class="dashboard-action" data-resend-activation="{{ m.id }}">إعادة إرسال رابط التفعيل</button>
-                                    {% if m.reason %}
-                                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
-                                    {% endif %}
-                                </div>
-                                {% elif m.reason %}
-                                <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
-                                {% else %}—{% endif %}
-                                {% if m.reason %}
-                                <template data-reason-for="{{ m.id }}">{{ m.reason }}</template>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="8" style="text-align:center;color:#888">لا توجد طلبات انضمام بعد.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            {{ membership_requests_table(membership_requests, "club") }}
         </div>
     </div>
 
@@ -859,7 +782,8 @@
             <div>
                 <h2 class="st">إدارة اللجان</h2>
                 <p class="dashboard-description">
-                    إنشاء اللجان وتعيين قائد وأعضاء لكل لجنة. تسجيل عضو جديد لا يضعه تلقائياً في أي لجنة.
+                    إنشاء اللجان وتعيين قائد لكل لجنة. ينضم الأعضاء للجان عبر طلبات العضوية التي يراجعها قائد كل لجنة،
+                    ولا تظهر في نموذج طلب العضوية إلا اللجان التي لها قائد.
                 </p>
             </div>
             <div class="dashboard-heading-actions">
@@ -911,7 +835,6 @@
                 </ul>
 
                 <div class="cm-card-actions">
-                    <button type="button" class="btn-lite" data-add-member="{{ c.id }}">+ إضافة عضو</button>
                     <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}">تعديل</button>
                     <button type="button" class="btn-lite danger" data-delete-committee="{{ c.id }}" data-committee-name="{{ c.name }}">حذف اللجنة</button>
                 </div>
@@ -925,7 +848,7 @@
         <div class="cm-unassigned">
             <div class="cm-unassigned-head">
                 <b>أعضاء بدون لجنة ({{ unassigned_members|length }})</b>
-                <span style="color:#6a7f91;font-size:12.5px">يمكن إضافتهم إلى أي لجنة من زر «+ إضافة عضو».</span>
+                <span style="color:#6a7f91;font-size:12.5px">يستطيع قائد اللجنة إضافتهم من صفحة لجنته.</span>
             </div>
             <div class="cm-unassigned-list">
                 {% for u in unassigned_members %}
@@ -1221,7 +1144,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <label>قائد اللجنة (اختياري — يجب أن يكون عضواً مسجلاً)</label>
                 <select id="cmNewLeader">${memberOptions(unassigned, '')}</select>
                 <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
-                    القائمة أعلاه تعرض الأعضاء غير المعيّنين. يمكنك إضافة أعضاء وتعديل القيادة لاحقاً.
+                    القائمة أعلاه تعرض الأعضاء غير المعيّنين. يمكنك تعديل القيادة لاحقاً.
                 </p>
                 <div class="row" style="margin-top:14px">
                     <button class="btn btn-o" id="cmSaveNew">إنشاء اللجنة</button>
@@ -1289,41 +1212,6 @@ document.addEventListener('DOMContentLoaded', function () {
         location.reload();
     });
 
-    /* ---- ADD member ---- */
-    document.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-add-member]');
-        if (!btn) return;
-        const id = btn.dataset.addMember;
-        let roster;
-        try { roster = await loadRoster(); }
-        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
-        const unassigned = roster.unassigned_members || [];
-        if (!unassigned.length) {
-            toast('لا يوجد أعضاء غير معيّنين حالياً — انقل عضواً من لجنة أخرى عبر زر «نقل».');
-            return;
-        }
-        modal(`
-            <h3>إضافة عضو للجنة</h3>
-            <div class="dashboard-form">
-                <label>اختر عضواً من غير المعيّنين</label>
-                <select id="cmAddUser">${memberOptions(unassigned, '')}</select>
-                <div class="row" style="margin-top:14px">
-                    <button class="btn btn-o" id="cmAddSave">إضافة</button>
-                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
-                </div>
-            </div>
-        `);
-        document.getElementById('cmAddSave').onclick = async () => {
-            const uid = document.getElementById('cmAddUser').value;
-            if (!uid) return toast('اختر عضواً');
-            const r = await postJSON(`/leader/committees/${id}/add-member`, {user_id: Number(uid)});
-            if (!r.ok) return toast(r.data.error || 'فشل الإضافة');
-            closeModal();
-            toast('تم إضافة العضو');
-            location.reload();
-        };
-    });
-
     /* ---- REMOVE member (keeps their account) ---- */
     document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-remove-member]');
@@ -1370,7 +1258,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('cmMoveSave').onclick = async () => {
             const target = document.getElementById('cmMoveTarget').value;
             if (!target) return toast('اختر لجنة');
-            const r = await postJSON(`/leader/committees/${target}/add-member`, {user_id: Number(userId)});
+            const r = await postJSON(`/leader/committees/${target}/move-member`, {user_id: Number(userId)});
             if (!r.ok) return toast(r.data.error || 'فشل النقل');
             closeModal();
             toast('تم نقل العضو');

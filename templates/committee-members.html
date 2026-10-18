@@ -70,6 +70,11 @@
         .cl-wrap{margin-top:90px}
         table.cl-table th:nth-child(2),
         table.cl-table td:nth-child(2){display:none}
+        /* Requests table on phones: keep name, student ID, status and the
+           review buttons; hide major, email, date and reviewer. */
+        .cl-requests .dashboard-table{min-width:0}
+        .cl-requests .dashboard-table :is(th,td){padding:10px 8px}
+        .cl-requests .dashboard-table :is(th,td):is(:nth-child(3),:nth-child(4),:nth-child(5),:nth-child(7)){display:none}
     }
 </style>
 </head>
@@ -122,10 +127,27 @@
         </div>
     </div>
 
+    {% if is_committee_leader %}
+    {% from "_membership_requests.html" import membership_requests_table %}
+    <div class="cl-section-head">
+        <h2>طلبات الانضمام للجنة
+            {% if pending_requests_count %}<span class="cl-badge-leader" style="font-size:12px">{{ pending_requests_count }} بانتظار المراجعة</span>{% endif %}
+        </h2>
+    </div>
+    <p style="color:#6a7f91;font-size:13.5px;margin:-6px 0 12px;line-height:1.7">
+        عند قبول الطلب يصل للمتقدم بريد فيه رابط لتعيين كلمة المرور، وبعد تفعيل حسابه ينضم لهذه اللجنة تلقائياً.
+    </p>
+    <div class="cl-card cl-requests" style="margin-bottom:28px">
+        {{ membership_requests_table(membership_requests, "committee") }}
+    </div>
+    {% endif %}
+
     <div class="cl-section-head">
         <h2>أعضاء اللجنة</h2>
+        {% if is_committee_leader %}
         <button type="button" class="cl-add-btn" id="clAddMemberBtn"
                 data-committee-id="{{ committee.id }}">+ إضافة عضو</button>
+        {% endif %}
     </div>
 
     <div class="cl-card">
@@ -165,7 +187,7 @@
         {% else %}
         <div class="cl-empty">
             <b>لا يوجد أعضاء في اللجنة بعد</b>
-            اضغط «إضافة عضو» لإضافة أول عضو إلى لجنتك.
+            {% if is_committee_leader %}ينضم الأعضاء عند قبول طلباتهم، أو اضغط «إضافة عضو» لإضافة عضو مسجّل.{% endif %}
         </div>
         {% endif %}
     </div>
