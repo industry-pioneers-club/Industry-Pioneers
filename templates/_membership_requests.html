@@ -5,9 +5,11 @@
 
    reviewer='committee' — the page lists only the leader's own committee,
                           so every row can be approved / rejected.
-   reviewer='club'      — read-only overview of all requests, except legacy
-                          requests with no committee, which the club leader
-                          still reviews so they never get stuck.
+   reviewer='club'      — read-only overview of all requests, except those
+                          no committee leader can review (no committee, or a
+                          committee without a leader yet), which the club
+                          leader reviews so they never get stuck. Mirrors
+                          _club_leader_reviews() in app.py.
    Buttons are wired in static/js/main.js (#membershipRequestsList).
 -#}
 {% macro membership_requests_table(requests, reviewer) %}
@@ -37,13 +39,17 @@
         <tbody id="membershipRequestsList"
                data-endpoint="{{ '/committee-leader/membership-requests' if reviewer == 'committee' else '/leader/membership-requests' }}">
             {% for m in requests %}
-            {% set can_review = reviewer == 'committee' or m.committee is none %}
+            {% set can_review = reviewer == 'committee' or m.committee is none or m.committee.leader_user_id is none %}
             <tr data-membership-id="{{ m.id }}" data-status="{{ m.status }}">
                 <td>{{ m.name }}</td>
                 <td>{{ m.student_id }}</td>
                 <td>{{ m.major }}</td>
                 {% if show_committee %}
-                <td>{{ m.committee.name if m.committee else '— طلب بدون لجنة' }}</td>
+                <td>
+                    {% if m.committee %}{{ m.committee.name }}
+                    {% if m.committee.leader_user_id is none %}<br><small style="color:#b9770e">بدون قائد — تراجعه أنت</small>{% endif %}
+                    {% else %}— طلب بدون لجنة{% endif %}
+                </td>
                 {% endif %}
                 <td>{{ m.email if m.email else '—' }}</td>
                 <td>{{ m.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>

@@ -1393,20 +1393,12 @@ def serve_article_image(image_id):
     return resp
 
 
-def _open_committees():
-    """Committees an applicant can pick: only those with a leader, since
-    the leader is the one who reviews the request."""
-    return (
-        Committee.query
-        .filter(Committee.leader_user_id.isnot(None))
-        .order_by(Committee.name.asc())
-        .all()
-    )
-
-
 @app.get("/visitor")
 def visitor_portal():
-    return render_template("visitor.html", events=public_events(), committees=_open_committees())
+    # Every committee is offered, with or without a leader — requests to a
+    # leaderless committee are reviewed by the club leader until one is set.
+    committees = Committee.query.order_by(Committee.name.asc()).all()
+    return render_template("visitor.html", events=public_events(), committees=committees)
 
 
 @app.post("/visitor/membership-request")
@@ -1425,7 +1417,7 @@ def submit_membership_request():
         return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
     committee_id = _int_or_none(data.get("committee_id"))
     committee = db.session.get(Committee, committee_id) if committee_id else None
-    if committee is None or committee.leader_user_id is None:
+    if committee is None:
         return jsonify({"error": "يرجى اختيار اللجنة التي تريد الانضمام إليها"}), 400
     existing_user = _user_by_email(email)
     if existing_user is not None and existing_user.role != "visitor":
@@ -2879,12 +2871,19 @@ _MEMBERSHIP_ACTIONS = {
 }
 
 
+def _club_leader_reviews(mr):
+    """True when a request has no committee leader to review it: no
+    committee (legacy, or committee deleted) or a committee with no
+    leader yet. Once a leader is assigned their pending requests move to
+    them — the reviewer is resolved live, never stored on the request."""
+    return mr.committee is None or mr.committee.leader_user_id is None
+
+
 def _review_membership(req_id, action, as_committee_leader):
     """Run a review action if the current user may act on this request.
-    A request sent to a committee belongs to that committee's leader
-    alone. Requests with no committee (submitted before committees were
-    in the form, or whose committee was deleted) fall back to the club
-    leader, so they never get stuck."""
+    A request sent to a committee with a leader belongs to that leader
+    alone; the club leader covers requests nobody else can review, so
+    they never get stuck."""
     handler = _MEMBERSHIP_ACTIONS.get(action)
     mr = db.session.get(MembershipRequest, req_id)
     if handler is None or mr is None:
@@ -2892,7 +2891,7 @@ def _review_membership(req_id, action, as_committee_leader):
     if as_committee_leader:
         if mr.committee is None or mr.committee.leader_user_id != current_user.id:
             return jsonify({"error": "يراجع هذا الطلبَ قائدُ اللجنة التي اختارها المتقدم فقط"}), 403
-    elif mr.committee is not None:
+    elif not _club_leader_reviews(mr):
         return jsonify({"error": "هذا الطلب يراجعه قائد اللجنة التي اختارها المتقدم"}), 403
     return handler(mr)
 
@@ -2906,7 +2905,7 @@ def committee_leader_review_membership(req_id, action):
 @app.post("/leader/membership-requests/<int:req_id>/<action>")
 @role_required("leader")
 def leader_review_membership(req_id, action):
-    """Club-leader fallback — only for requests without a committee."""
+    """Club-leader fallback — only for requests with no committee leader."""
     return _review_membership(req_id, action, as_committee_leader=False)
 
 
@@ -3301,21 +3300,49 @@ def _eligible_member(user):
     return user is not None and user.role in ("member", "leader")
 
 
+def _set_committee_leader(c, user_id):
+    """Make `user_id` the leader of committee `c`; a falsy id clears the
+    leader. A leader must be a member of their committee, so someone from
+    outside joins it first — which, like any move, clears their leadership
+    of a previous committee. The previous leader stays a plain member.
+    Returns an error message, or None on success. Caller commits."""
+    if not user_id:
+        c.leader_user_id = None
+        return None
+    user = db.session.get(User, user_id)
+    if not _eligible_member(user):
+        return "القائد يجب أن يكون عضواً مسجلاً"
+    if user.committee_id != c.id:
+        _assign_user_to_committee(user, c)
+    c.leader_user_id = user.id
+    return None
+
+
 @app.get("/leader/committees")
 @role_required("leader", "supervisor")
 def list_committees():
     rows = Committee.query.order_by(Committee.name.asc()).all()
-    unassigned = (
+    eligible = (
         User.query
-        .filter(User.role.in_(("member", "leader")), User.committee_id.is_(None))
+        .filter(User.role.in_(("member", "leader")))
         .order_by(User.name.asc())
         .all()
     )
+    led = {c.leader_user_id: c for c in rows if c.leader_user_id}
     return jsonify({
         "committees": [_committee_dict(c) for c in rows],
         "unassigned_members": [
             {"id": u.id, "name": u.name, "email": u.email, "role": u.role}
-            for u in unassigned
+            for u in eligible if u.committee_id is None
+        ],
+        # Everyone who can be made a committee leader, with where they sit
+        # today so the picker can warn before moving them.
+        "leader_candidates": [
+            {"id": u.id, "name": u.name, "email": u.email,
+             "committee_id": u.committee_id, "committee": u.committee,
+             "leads_id": led[u.id].id if u.id in led else None,
+             "leads": led[u.id].name if u.id in led else None}
+            for u in eligible
         ],
     })
 
@@ -3347,13 +3374,10 @@ def create_committee():
     except IntegrityError:
         db.session.rollback()
         return jsonify({"error": "يوجد لجنة بنفس الاسم"}), 409
-    if leader_user_id is not None:
-        leader = db.session.get(User, leader_user_id)
-        if not _eligible_member(leader):
-            db.session.rollback()
-            return jsonify({"error": "القائد يجب أن يكون عضواً مسجلاً"}), 400
-        _assign_user_to_committee(leader, committee)
-        committee.leader_user_id = leader.id
+    error = _set_committee_leader(committee, leader_user_id)
+    if error:
+        db.session.rollback()
+        return jsonify({"error": error}), 400
     db.session.commit()
     return jsonify(_committee_dict(committee)), 201
 
@@ -3365,6 +3389,12 @@ def edit_committee(committee_id):
     if c is None:
         abort(404)
     data = submitted()
+    # Leader first: on error nothing has been changed yet. Present-but-empty
+    # (or 0) clears the leader; absent leaves it untouched.
+    if "leader_user_id" in data:
+        error = _set_committee_leader(c, _int_or_none(data.get("leader_user_id")))
+        if error:
+            return jsonify({"error": error}), 400
     if "name" in data:
         new_name = text_field(data, "name")[:120]
         if not new_name:
@@ -3460,20 +3490,11 @@ def committee_set_leader(committee_id):
     c = db.session.get(Committee, committee_id)
     if c is None:
         abort(404)
-    user_id = _int_or_none(submitted().get("user_id"))
-    if not user_id:
-        c.leader_user_id = None
-        db.session.commit()
-        return jsonify({"committee_id": c.id, "leader_user_id": None})
-    user = db.session.get(User, user_id)
-    if not _eligible_member(user):
-        return jsonify({"error": "القائد يجب أن يكون عضواً مسجلاً"}), 400
-    # If they aren't already in this committee, pull them in first.
-    if user.committee_id != c.id:
-        _assign_user_to_committee(user, c)
-    c.leader_user_id = user.id
+    error = _set_committee_leader(c, _int_or_none(submitted().get("user_id")))
+    if error:
+        return jsonify({"error": error}), 400
     db.session.commit()
-    return jsonify({"committee_id": c.id, "leader_user_id": user.id})
+    return jsonify({"committee_id": c.id, "leader_user_id": c.leader_user_id})
 
 
 # ===========================================================

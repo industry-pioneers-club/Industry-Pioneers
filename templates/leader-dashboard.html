@@ -716,7 +716,8 @@
                 <p class="dashboard-description">
                     متابعة طلبات العضوية الواردة من بوابة الزوار.
                     <strong>يراجع كل طلب قائدُ اللجنة التي اختارها المتقدم، وعند قبوله ينضم العضو لتلك اللجنة.
-                    هذا القسم للمتابعة فقط، ما عدا الطلبات بدون لجنة (القديمة أو التي حُذفت لجنتها) فتراجعها من هنا.</strong>
+                    تراجع من هنا فقط طلبات اللجان التي ليس لها قائد بعد والطلبات بدون لجنة؛
+                    وعند تعيين قائد للجنة تنتقل طلباتها المعلّقة إليه تلقائياً.</strong>
                 </p>
                 <p style="margin-top:8px;color:#555">
                     قيد المراجعة: <strong>{{ membership_counts.pending }}</strong>
@@ -765,6 +766,23 @@
         .cm-card-actions .btn-lite:hover{background:#f39c12;color:#fff}
         .cm-card-actions .btn-lite.danger{color:#c0392b;border-color:#c0392b}
         .cm-card-actions .btn-lite.danger:hover{background:#c0392b;color:#fff}
+        /* Searchable leader picker (create / edit committee modals) */
+        .cm-picker{display:flex;flex-direction:column;gap:6px}
+        .cm-picker-current{display:flex;justify-content:space-between;align-items:center;gap:8px;
+                           padding:8px 12px;border-radius:10px;background:#fff5e5;color:#9a5a00;
+                           font-size:13.5px;font-weight:700}
+        .cm-picker-current[hidden]{display:none}
+        .cm-picker-current small{display:block;color:#6a7f91;font-weight:500;font-size:12px}
+        .box .cm-picker-search{margin:0}
+        .cm-picker-list{max-height:180px;overflow-y:auto;border:1px solid #e6ecf2;border-radius:10px;background:#fcfdfe}
+        .cm-picker-item{display:block;width:100%;text-align:right;padding:8px 12px;border:0;
+                        border-bottom:1px solid #eef2f6;background:transparent;cursor:pointer;
+                        font:700 13.5px Tajawal,sans-serif;color:#1b365d}
+        .cm-picker-item:last-child{border-bottom:0}
+        .cm-picker-item:hover,.cm-picker-item:focus{background:#fff8ec;outline:0}
+        .cm-picker-item small{display:block;color:#6a7f91;font-weight:500;font-size:12px;margin-top:2px}
+        .cm-picker-item small.warn{color:#b9770e}
+        .cm-picker-empty{padding:12px;text-align:center;color:#9fb3c4;font-size:13px}
         .cm-empty{grid-column:1/-1;text-align:center;color:#9fb3c4;padding:28px 20px;
                   border:1px dashed #e6ecf2;border-radius:12px;background:#fcfdfe}
         .cm-unassigned{margin-top:18px;background:#f7f9fc;border:1px solid #e6ecf2;border-radius:10px;
@@ -782,8 +800,8 @@
             <div>
                 <h2 class="st">إدارة اللجان</h2>
                 <p class="dashboard-description">
-                    إنشاء اللجان وتعيين قائد لكل لجنة. ينضم الأعضاء للجان عبر طلبات العضوية التي يراجعها قائد كل لجنة،
-                    ولا تظهر في نموذج طلب العضوية إلا اللجان التي لها قائد.
+                    إنشاء اللجان وتعيين قادتها. تظهر كل اللجان في نموذج طلب العضوية، وينضم الأعضاء إليها
+                    عبر طلبات العضوية التي يراجعها قائد كل لجنة.
                 </p>
             </div>
             <div class="dashboard-heading-actions">
@@ -835,7 +853,8 @@
                 </ul>
 
                 <div class="cm-card-actions">
-                    <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}">تعديل</button>
+                    <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}"
+                            data-committee-leader-id="{{ c.leader_user_id or '' }}" data-committee-leader-name="{{ c.leader.name if c.leader else '' }}">تعديل</button>
                     <button type="button" class="btn-lite danger" data-delete-committee="{{ c.id }}" data-committee-name="{{ c.name }}">حذف اللجنة</button>
                 </div>
             </article>
@@ -1106,14 +1125,79 @@ document.addEventListener('DOMContentLoaded', function () {
         return res.json();
     }
 
-    function memberOptions(members, selectedId) {
-        return [
-            '<option value="">— اختر عضواً —</option>',
-            ...members.map(m => {
-                const sel = (selectedId && Number(selectedId) === m.id) ? ' selected' : '';
-                return `<option value="${m.id}"${sel}>${esc(m.name)} · ${esc(m.email)}</option>`;
-            }),
-        ].join('');
+    /* ---- Searchable leader picker (create + edit modals) ---- */
+    const PICKER_HTML = `
+        <label>قائد اللجنة (اختياري)</label>
+        <div class="cm-picker" data-leader-picker>
+            <div class="cm-picker-current" data-picker-current hidden></div>
+            <input type="search" class="cm-picker-search" data-picker-search
+                   placeholder="ابحث بالاسم أو البريد الإلكتروني…" autocomplete="off">
+            <div class="cm-picker-list" data-picker-list></div>
+        </div>`;
+
+    // Arabic-friendly matching: ignore case, diacritics, tatweel and the
+    // usual alef / yaa / taa-marbuta spelling variants.
+    const norm = (s) => String(s || '').toLowerCase()
+        .replace(/[\u064B-\u0652\u0640]/g, '')
+        .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+
+    // Wires the picker inside the open modal. `current` is the existing
+    // leader ({id, name}) or null; `committeeId` is null when creating.
+    // Returns a getter for the chosen user id (null = no leader).
+    function mountLeaderPicker(candidates, current, committeeId) {
+        const root = document.querySelector('#box [data-leader-picker]');
+        const currentBox = root.querySelector('[data-picker-current]');
+        const search = root.querySelector('[data-picker-search]');
+        const list = root.querySelector('[data-picker-list]');
+        const same = (a, b) => a != null && b != null && String(a) === String(b);
+        let selected = current
+            ? (candidates.find(u => same(u.id, current.id)) || {id: current.id, name: current.name, email: ''})
+            : null;
+
+        // Where the person sits today, and what choosing them will change.
+        const placement = (u) => {
+            if (u.leads_id && !same(u.leads_id, committeeId))
+                return {text: `قائد لجنة «${u.leads}» حالياً — سيُنقل إلى هذه اللجنة وتبقى تلك بدون قائد`, warn: true};
+            if (u.committee_id && !same(u.committee_id, committeeId))
+                return {text: `عضو في «${u.committee}» — سيُنقل إلى هذه اللجنة`, warn: true};
+            if (u.committee_id) return {text: 'عضو في هذه اللجنة', warn: false};
+            return {text: 'بدون لجنة', warn: false};
+        };
+
+        const renderCurrent = () => {
+            currentBox.hidden = !selected;
+            if (!selected) return;
+            currentBox.innerHTML = `<span>★ ${esc(selected.name)}<small>${esc(selected.email)}</small></span>
+                <button type="button" class="cm-mini-btn danger" data-picker-clear>إزالة القائد</button>`;
+        };
+        const renderList = () => {
+            const q = norm(search.value.trim());
+            const rows = candidates.filter(u => !(selected && same(u.id, selected.id)) &&
+                (!q || norm(u.name).includes(q) || norm(u.email).includes(q)));
+            list.innerHTML = rows.length
+                ? rows.slice(0, 50).map(u => {
+                    const p = placement(u);
+                    return `<button type="button" class="cm-picker-item" data-pick="${u.id}">${esc(u.name)}
+                        <small>${esc(u.email)}</small><small class="${p.warn ? 'warn' : ''}">${esc(p.text)}</small></button>`;
+                  }).join('') + (rows.length > 50 ? '<div class="cm-picker-empty">اكتب للبحث لعرض المزيد…</div>' : '')
+                : `<div class="cm-picker-empty">${q ? 'لا توجد نتائج مطابقة' : 'لا يوجد أعضاء مسجلون'}</div>`;
+        };
+
+        list.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-pick]');
+            if (!b) return;
+            selected = candidates.find(u => same(u.id, b.dataset.pick)) || null;
+            search.value = '';
+            renderCurrent(); renderList();
+        });
+        currentBox.addEventListener('click', (e) => {
+            if (!e.target.closest('[data-picker-clear]')) return;
+            selected = null;
+            renderCurrent(); renderList();
+        });
+        search.addEventListener('input', renderList);
+        renderCurrent(); renderList();
+        return () => (selected ? Number(selected.id) : null);
     }
 
     async function postJSON(url, body) {
@@ -1133,7 +1217,6 @@ document.addEventListener('DOMContentLoaded', function () {
         let roster;
         try { roster = await loadRoster(); }
         catch (_) { toast('تعذر تحميل الأعضاء'); return; }
-        const unassigned = roster.unassigned_members || [];
         modal(`
             <h3>إنشاء لجنة جديدة</h3>
             <div class="dashboard-form">
@@ -1141,10 +1224,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input id="cmNewName" type="text" maxlength="120" placeholder="مثال: لجنة البرمجة">
                 <label>وصف مختصر (اختياري)</label>
                 <textarea id="cmNewDesc" maxlength="400" rows="3" placeholder="نشاط اللجنة ومسؤولياتها"></textarea>
-                <label>قائد اللجنة (اختياري — يجب أن يكون عضواً مسجلاً)</label>
-                <select id="cmNewLeader">${memberOptions(unassigned, '')}</select>
+                ${PICKER_HTML}
                 <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
-                    القائمة أعلاه تعرض الأعضاء غير المعيّنين. يمكنك تعديل القيادة لاحقاً.
+                    يمكنك ترك اللجنة بدون قائد وتعيينه لاحقاً من «تعديل».
                 </p>
                 <div class="row" style="margin-top:14px">
                     <button class="btn btn-o" id="cmSaveNew">إنشاء اللجنة</button>
@@ -1152,13 +1234,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             </div>
         `);
+        const getLeaderId = mountLeaderPicker(roster.leader_candidates || [], null, null);
         document.getElementById('cmSaveNew').onclick = async () => {
             const name = document.getElementById('cmNewName').value.trim();
             const description = document.getElementById('cmNewDesc').value.trim();
-            const leaderId = document.getElementById('cmNewLeader').value;
+            const leaderId = getLeaderId();
             if (!name) return toast('اسم اللجنة مطلوب');
             const body = {name, description};
-            if (leaderId) body.leader_user_id = Number(leaderId);
+            if (leaderId) body.leader_user_id = leaderId;
             const r = await postJSON('/leader/committees', body);
             if (!r.ok) return toast(r.data.error || 'فشل الإنشاء');
             closeModal();
@@ -1167,13 +1250,18 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     });
 
-    /* ---- EDIT committee (name + description) ---- */
-    document.addEventListener('click', (e) => {
+    /* ---- EDIT committee (name + description + leader) ---- */
+    document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-edit-committee]');
         if (!btn) return;
         const id = btn.dataset.editCommittee;
         const name = btn.dataset.committeeName || '';
         const desc = btn.dataset.committeeDesc || '';
+        const leaderId = btn.dataset.committeeLeaderId ? Number(btn.dataset.committeeLeaderId) : null;
+        const current = leaderId ? {id: leaderId, name: btn.dataset.committeeLeaderName || ''} : null;
+        let roster;
+        try { roster = await loadRoster(); }
+        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
         modal(`
             <h3>تعديل اللجنة</h3>
             <div class="dashboard-form">
@@ -1181,17 +1269,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input id="cmEditName" type="text" maxlength="120" value="${esc(name)}">
                 <label>الوصف</label>
                 <textarea id="cmEditDesc" maxlength="400" rows="3">${esc(desc)}</textarea>
+                ${PICKER_HTML}
+                <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
+                    عند تغيير القائد أو إزالته يبقى القائد السابق عضواً في اللجنة.
+                </p>
                 <div class="row" style="margin-top:14px">
                     <button class="btn btn-o" id="cmSaveEdit">حفظ</button>
                     <button class="btn btn-s" type="button" data-close>إلغاء</button>
                 </div>
             </div>
         `);
+        const getLeaderId = mountLeaderPicker(roster.leader_candidates || [], current, id);
         document.getElementById('cmSaveEdit').onclick = async () => {
             const newName = document.getElementById('cmEditName').value.trim();
             const newDesc = document.getElementById('cmEditDesc').value.trim();
             if (!newName) return toast('اسم اللجنة مطلوب');
-            const r = await postJSON(`/leader/committees/${id}/edit`, {name: newName, description: newDesc});
+            const body = {name: newName, description: newDesc};
+            // Only send the leader when it changed; 0 clears it.
+            const newLeaderId = getLeaderId();
+            if (newLeaderId !== leaderId) body.leader_user_id = newLeaderId || 0;
+            const r = await postJSON(`/leader/committees/${id}/edit`, body);
             if (!r.ok) return toast(r.data.error || 'فشل الحفظ');
             closeModal();
             toast('تم تحديث اللجنة');

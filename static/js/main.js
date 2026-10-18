@@ -1034,7 +1034,13 @@ if (supervisorPage) {
     };
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
         c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const showSuccessPopup = (email, committeeName) => {
+    const showSuccessPopup = (email, committeeName, hasLeader) => {
+        const committeeHtml = `لجنة <strong style="color:var(--pn)">${esc(committeeName)}</strong>`;
+        const reviewLine = !committeeName
+            ? 'سيراجع فريق النادي طلبك قريباً.'
+            : hasLeader
+            ? `سيراجع قائد ${committeeHtml} طلبك قريباً.`
+            : `سيراجع فريق النادي طلب انضمامك إلى ${committeeHtml} قريباً.`;
         if (typeof modal !== 'function') {
             showMsg('تم استلام طلبك بنجاح. عند قبوله ستصلك رسالة على بريدك الإلكتروني فيها رابط لتفعيل حسابك.', true);
             return;
@@ -1045,7 +1051,7 @@ if (supervisorPage) {
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px;stroke:#1e7e34;stroke-width:3"><polyline points="20 6 9 17 4 12"/></svg>
 </div>
 <h3 style="color:var(--pn);font-size:21px">تم إرسال طلبك بنجاح</h3>
-<p style="margin-top:10px;line-height:1.9;color:#444">شكراً لاهتمامك بالانضمام إلى نادي رواد الصناعة، سيراجع قائد ${committeeName ? `لجنة <strong style="color:var(--pn)">${esc(committeeName)}</strong>` : 'اللجنة'} طلبك قريباً.</p>
+<p style="margin-top:10px;line-height:1.9;color:#444">شكراً لاهتمامك بالانضمام إلى نادي رواد الصناعة، ${reviewLine}</p>
 <p style="margin-top:8px;line-height:1.9;color:#444">عند قبول طلبك ستصلك رسالة على بريدك الإلكتروني<br><strong dir="ltr" style="color:var(--pn);word-break:break-all">${esc(email)}</strong><br>فيها رابط لتعيين كلمة المرور وتفعيل حسابك.</p>
 <p style="margin-top:8px;font-size:13px;color:#777">إذا لم تجد الرسالة، تحقق من مجلد الرسائل غير المرغوب فيها (Spam).</p>
 <button type="button" class="btn btn-o" data-close style="margin-top:18px">حسناً</button>
@@ -1069,7 +1075,9 @@ if (supervisorPage) {
             showMsg('يرجى اختيار اللجنة التي تريد الانضمام إليها', false);
             return;
         }
-        const committeeName = form.committee_id.selectedOptions[0]?.textContent.trim() || '';
+        const committeeOpt = form.committee_id.selectedOptions[0];
+        const committeeName = committeeOpt?.textContent.trim() || '';
+        const committeeHasLeader = committeeOpt?.dataset.hasLeader === '1';
         try {
             const res = await fetch('/visitor/membership-request', {
                 method: 'POST',
@@ -1080,7 +1088,7 @@ if (supervisorPage) {
             try { data = await res.json(); } catch (_) {}
             if (res.status === 201) {
                 form.reset();
-                showSuccessPopup(payload.email, committeeName);
+                showSuccessPopup(payload.email, committeeName, committeeHasLeader);
             } else if (res.status === 409) {
                 showMsg(data.error || 'لديك طلب قيد المراجعة بالفعل', false);
             } else if (res.status === 400) {

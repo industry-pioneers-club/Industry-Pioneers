@@ -286,13 +286,13 @@
 {% if committees %}
                     <option value="">— اختر لجنة —</option>
 {% for c in committees %}
-                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    <option value="{{ c.id }}" data-has-leader="{{ '1' if c.leader_user_id else '0' }}">{{ c.name }}</option>
 {% endfor %}
 {% else %}
                     <option value="">لا توجد لجان متاحة للتقديم حالياً</option>
 {% endif %}
                 </select>
-                <small style="color:#666">يراجع طلبك قائد اللجنة التي تختارها.</small>
+                <small style="color:#666">يراجع طلبك قائد اللجنة التي تختارها، أو إدارة النادي إذا لم يُعيَّن لها قائد بعد.</small>
             </div>
             <div class="form-group">
                 <label for="member-email">البريد الإلكتروني</label>
