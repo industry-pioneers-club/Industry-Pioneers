@@ -907,66 +907,10 @@ if (supervisorPage) {
 
 
 /* =========================================
-   PHASE 0 — SIGNUP + MEMBER TASK STATUS
+   PHASE 0 — MEMBER TASK STATUS
    ========================================= */
 
 (function () {
-    const sq = (s, r = document) => r.querySelector(s);
-
-    /* ---------- Signup form (templates/signup.html) ---------- */
-    const signupForm = sq('#signupForm');
-    if (signupForm) {
-        const errorBox = sq('#signupError');
-        const showError = (msg) => {
-            if (!errorBox) return;
-            errorBox.textContent = msg;
-            errorBox.style.display = msg ? 'block' : 'none';
-        };
-
-        signupForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showError('');
-
-            const name = sq('#su-name').value.trim();
-            const email = sq('#su-email').value.trim();
-            const password = sq('#su-password').value;
-            const invite = sq('#su-invite').value.trim();
-
-            if (!name) return showError('يرجى إدخال الاسم');
-            if (!email) return showError('يرجى إدخال البريد الإلكتروني');
-            if (!password || password.length < 8) return showError('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
-
-            const payload = { name, email, password };
-            if (invite) payload.invite_code = invite;
-
-            try {
-                const res = await fetch('/register', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
-                });
-                if (res.status === 201) {
-                    window.location.href = '/login';
-                    return;
-                }
-                let data = {};
-                try { data = await res.json(); } catch (_) {}
-                if (res.status === 409) {
-                    showError('البريد الإلكتروني مسجل بالفعل');
-                } else if (res.status === 400) {
-                    showError(data.error || 'البيانات غير مكتملة');
-                } else {
-                    showError('تعذر إنشاء الحساب (' + res.status + ')');
-                }
-            } catch (err) {
-                showError('تعذر الاتصال بالخادم');
-            }
-        });
-    }
-
     /* ---------- Task status update (templates/tasks.html) ---------- */
     document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-update-status]');
@@ -1097,8 +1041,8 @@ if (supervisorPage) {
             email: form.email.value.trim(),
             reason: form.reason.value.trim(),
         };
-        if (!payload.name || !payload.student_id || !payload.major) {
-            showMsg('يرجى تعبئة الاسم والرقم الجامعي والتخصص', false);
+        if (!payload.name || !payload.student_id || !payload.major || !payload.email) {
+            showMsg('يرجى تعبئة الاسم والرقم الجامعي والتخصص والبريد الإلكتروني', false);
             return;
         }
         try {
@@ -1111,7 +1055,7 @@ if (supervisorPage) {
             try { data = await res.json(); } catch (_) {}
             if (res.status === 201) {
                 form.reset();
-                showMsg('تم استلام طلبك بنجاح. سيقوم القائد بمراجعته قريباً.', true);
+                showMsg('تم استلام طلبك بنجاح. عند قبوله ستصلك رسالة على بريدك الإلكتروني فيها رابط لتفعيل حسابك.', true);
             } else if (res.status === 409) {
                 showMsg(data.error || 'لديك طلب قيد المراجعة بالفعل', false);
             } else if (res.status === 400) {
@@ -1142,13 +1086,54 @@ if (supervisorPage) {
         });
     });
 
+    const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Email delivery off or failed → let the leader share the link manually.
+    const showActivationLink = (url) => {
+        if (!url) return;
+        if (typeof modal !== 'function') { prompt('رابط تفعيل الحساب', url); return; }
+        modal(`<h3 style="color:#1b365d">رابط تفعيل الحساب</h3>
+<p style="margin-top:12px;line-height:1.8">لم يُرسل البريد للمتقدم (خدمة الإيميل غير مفعّلة أو فشل الإرسال). انسخ الرابط وأرسله له بنفسك — يُستخدم مرة واحدة فقط.</p>
+<input readonly dir="ltr" data-activation-link value="${escHtml(url)}" style="width:100%;margin-top:10px;padding:8px 10px;border:1px solid #ccc;border-radius:8px">
+<div class="dashboard-actions" style="margin-top:12px">
+<button type="button" class="dashboard-action approve" data-copy-activation-link>نسخ الرابط</button>
+<button type="button" class="dashboard-action" data-close>إغلاق</button>
+</div>`);
+    };
+
+    const statusHtml = (data) => {
+        if (data.status === 'approved') {
+            return '<span class="dashboard-status status-approved">معتمد</span><br>' + (data.activated
+                ? '<small style="color:#27ae60">الحساب مفعّل</small>'
+                : '<small style="color:#b9770e">بانتظار تفعيل الحساب</small>');
+        }
+        if (data.status === 'rejected') return '<span class="dashboard-status status-rejected">مرفوض</span>';
+        return '<span class="dashboard-status status-pending">قيد المراجعة</span>';
+    };
+
+    const actionsHtml = (reqId, data, reasonTpl) => {
+        const buttons = [];
+        if (data.status === 'approved' && !data.activated) {
+            buttons.push(`<button type="button" class="dashboard-action" data-resend-activation="${reqId}">إعادة إرسال رابط التفعيل</button>`);
+        }
+        if (reasonTpl) {
+            buttons.push(`<button type="button" class="dashboard-action" data-view-reason="${reqId}">عرض السبب</button>`);
+        }
+        if (!buttons.length) return '—';
+        return `<div class="dashboard-actions">${buttons.join('')}</div>${reasonTpl ? reasonTpl.outerHTML : ''}`;
+    };
+
+    const CONFIRM_MSG = {
+        'approve': 'اعتماد طلب العضوية؟ سيصل للمتقدم بريد فيه رابط لتعيين كلمة المرور وتفعيل حسابه.',
+        'reject': 'رفض طلب العضوية؟',
+        'resend-activation': 'إرسال رابط تفعيل جديد؟ الرابط السابق سيتوقف عن العمل.',
+    };
+
     const callRoute = async (reqId, action, button) => {
         const row = button.closest('tr[data-membership-id]');
         if (!row) return;
-        const confirmMsg = action === 'approve'
-            ? 'اعتماد طلب العضوية؟ لن يُنشأ حساب تلقائياً — سيُطلب من المتقدم التسجيل بنفسه عبر /signup باستخدام رمز الدعوة.'
-            : 'رفض طلب العضوية؟';
-        if (!confirm(confirmMsg)) return;
+        if (!confirm(CONFIRM_MSG[action])) return;
         row.querySelectorAll('button').forEach(b => { b.disabled = true; });
         try {
             const res = await fetch(`/leader/membership-requests/${reqId}/${action}`, {method:'POST'});
@@ -1161,29 +1146,29 @@ if (supervisorPage) {
             }
             row.dataset.status = data.status;
             const statusCell = row.querySelector('[data-membership-status]');
-            if (statusCell) {
-                statusCell.innerHTML = data.status === 'approved'
-                    ? '<span class="dashboard-status status-approved">معتمد</span>'
-                    : data.status === 'rejected'
-                    ? '<span class="dashboard-status status-rejected">مرفوض</span>'
-                    : '<span class="dashboard-status status-pending">قيد المراجعة</span>';
-            }
+            if (statusCell) statusCell.innerHTML = statusHtml(data);
             const actionsCell = row.querySelector('[data-membership-actions]');
-            const reasonTpl = actionsCell ? actionsCell.querySelector(`template[data-reason-for="${reqId}"]`) : null;
             if (actionsCell) {
-                actionsCell.innerHTML = reasonTpl
-                    ? `<button type="button" class="dashboard-action" data-view-reason="${reqId}">عرض السبب</button>${reasonTpl.outerHTML}`
-                    : '—';
+                const reasonTpl = actionsCell.querySelector(`template[data-reason-for="${reqId}"]`);
+                actionsCell.innerHTML = actionsHtml(reqId, data, reasonTpl);
             }
-            if (typeof toast === 'function') {
-                const base = action === 'approve'
-                    ? 'تم اعتماد الطلب'
-                    : 'تم رفض الطلب';
-                const emailNote = data.email_sent
+            let msg;
+            if (action === 'reject') {
+                msg = 'تم رفض الطلب' + (data.email_sent
                     ? ' · أُرسل إشعار للمتقدم'
-                    : ' · لم يُرسل إيميل (الخدمة غير مفعّلة)';
-                toast(base + emailNote);
+                    : ' · لم يُرسل إيميل (الخدمة غير مفعّلة)');
+            } else if (data.activated) {
+                // An account with this email already existed — it was promoted to member.
+                msg = 'يوجد حساب بهذا البريد · تمت ترقيته إلى عضو';
+            } else if (data.email_sent) {
+                msg = action === 'approve'
+                    ? 'تم اعتماد الطلب · أُرسل رابط التفعيل لبريد المتقدم'
+                    : 'أُرسل رابط تفعيل جديد لبريد المتقدم';
+            } else {
+                msg = (action === 'approve' ? 'تم اعتماد الطلب' : 'تم إنشاء رابط جديد') + ' · لم يُرسل البريد';
+                showActivationLink(data.activation_url);
             }
+            if (typeof toast === 'function') toast(msg);
         } catch (_) {
             if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
             row.querySelectorAll('button').forEach(b => { b.disabled = false; });
@@ -1195,6 +1180,21 @@ if (supervisorPage) {
         if (ab) { e.preventDefault(); callRoute(ab.dataset.approveMembership, 'approve', ab); return; }
         const rb = e.target.closest('[data-reject-membership]');
         if (rb) { e.preventDefault(); callRoute(rb.dataset.rejectMembership, 'reject', rb); return; }
+        const sb = e.target.closest('[data-resend-activation]');
+        if (sb) { e.preventDefault(); callRoute(sb.dataset.resendActivation, 'resend-activation', sb); return; }
+        const cb = e.target.closest('[data-copy-activation-link]');
+        if (cb) {
+            const input = document.querySelector('[data-activation-link]');
+            if (!input) return;
+            const copied = () => { if (typeof toast === 'function') toast('تم نسخ الرابط'); };
+            const fallback = () => { input.select(); document.execCommand('copy'); copied(); };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(input.value).then(copied, fallback);
+            } else {
+                fallback();
+            }
+            return;
+        }
         const vb = e.target.closest('[data-view-reason]');
         if (vb) {
             e.preventDefault();

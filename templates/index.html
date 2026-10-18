@@ -246,7 +246,7 @@
         {% if current_user.is_authenticated %}
         <a class="home-join-cta" href="{{ url_for('dashboard') }}">الذهاب إلى لوحتي</a>
         {% else %}
-        <a class="home-join-cta" href="{{ url_for('visitor_portal') }}">انضم الآن</a>
+        <a class="home-join-cta" href="{{ url_for('visitor_portal') }}#membership">انضم الآن</a>
         {% endif %}
     </div>
 </section>

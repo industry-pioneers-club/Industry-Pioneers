@@ -714,8 +714,8 @@
                 <h2 class="st">طلبات الانضمام للنادي</h2>
                 <p class="dashboard-description">
                     مراجعة طلبات العضوية الواردة من بوابة الزوار.
-                    <strong>الاعتماد لا يُنشئ حساباً تلقائياً — يجب على المتقدم التسجيل بنفسه عبر صفحة
-                    <a href="{{ url_for('signup_form') }}">إنشاء حساب</a> باستخدام رمز الدعوة.</strong>
+                    <strong>عند الاعتماد يصل للمتقدم بريد فيه رابط لتعيين كلمة المرور وتفعيل حسابه كعضو.
+                    يمكنك إعادة إرسال الرابط إذا انتهت صلاحيته أو لم يصل.</strong>
                 </p>
                 <p style="margin-top:8px;color:#555">
                     قيد المراجعة: <strong>{{ membership_counts.pending }}</strong>
@@ -758,6 +758,11 @@
                             <td data-membership-status>
                                 {% if m.status == 'approved' %}
                                 <span class="dashboard-status status-approved">معتمد</span>
+                                {% if m.activated_at %}
+                                <br><small style="color:#27ae60">الحساب مفعّل</small>
+                                {% else %}
+                                <br><small style="color:#b9770e">بانتظار تفعيل الحساب</small>
+                                {% endif %}
                                 {% elif m.status == 'rejected' %}
                                 <span class="dashboard-status status-rejected">مرفوض</span>
                                 {% else %}
@@ -775,6 +780,13 @@
                                 <div class="dashboard-actions">
                                     <button class="dashboard-action approve" data-approve-membership="{{ m.id }}">✓ اعتماد</button>
                                     <button class="dashboard-action reject" data-reject-membership="{{ m.id }}">✗ رفض</button>
+                                    {% if m.reason %}
+                                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
+                                    {% endif %}
+                                </div>
+                                {% elif m.status == 'approved' and not m.activated_at and m.email %}
+                                <div class="dashboard-actions">
+                                    <button type="button" class="dashboard-action" data-resend-activation="{{ m.id }}">إعادة إرسال رابط التفعيل</button>
                                     {% if m.reason %}
                                     <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
                                     {% endif %}

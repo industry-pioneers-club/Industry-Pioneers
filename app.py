@@ -1,11 +1,12 @@
-import hmac
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 try:
@@ -23,6 +24,7 @@ from flask_login import (
     logout_user,
 )
 from flask_sqlalchemy import SQLAlchemy
+from markupsafe import escape
 from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -469,17 +471,29 @@ class ActivityLog(db.Model):
 
 class MembershipRequest(db.Model):
     """Phase 4: public membership applications from /visitor.
-    Leader-only review. Approval does NOT auto-create a user account."""
+    Leader-only review. This is the ONLY way to get an account: approval
+    emails the applicant a single-use link to /activate/<token>, where
+    they set a password and the member account is created."""
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     student_id = db.Column(db.String(50), nullable=False)
     major = db.Column(db.String(120), nullable=False)
+    # Required for new applications (the activation link is sent here).
+    # Nullable only for legacy rows submitted when email was optional.
     email = db.Column(db.String(120), nullable=True)
     reason = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default="pending")
     submitted_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     reviewed_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
+    # Account activation. Only the SHA-256 of the emailed token is stored;
+    # it is cleared once used. Re-sending rotates it (old link dies).
+    activation_token_hash = db.Column(db.String(64), nullable=True)
+    activation_expires_at = db.Column(db.DateTime, nullable=True)
+    # Set when the applicant's account exists (created via the activation
+    # page, or an existing account linked on approval).
+    activated_at = db.Column(db.DateTime, nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
 
     reviewer = db.relationship("User", lazy="joined", foreign_keys=[reviewed_by])
 
@@ -578,6 +592,15 @@ def role_required(*roles):
         return wrapped
 
     return decorator
+
+
+def _user_by_email(email):
+    """Case-insensitive account lookup. New accounts are stored lowercase,
+    but legacy rows may not be, so compare on lower() of both sides.
+    Defined up here because boot-time schema backfill uses it."""
+    if not isinstance(email, str) or not email.strip():
+        return None
+    return User.query.filter(db.func.lower(User.email) == email.strip().lower()).first()
 
 
 # Used only so a missing account is not obviously faster than a bad password.
@@ -989,7 +1012,13 @@ def _upgrade_schema():
             "ON membership_request(lower(email)) "
             "WHERE status = 'pending' AND email IS NOT NULL"
         ))
+        # Membership-based account activation (replaces direct signup).
+        _ensure_sqlite_column("membership_request", "activation_token_hash", "VARCHAR(64)", "NULL")
+        _ensure_sqlite_column("membership_request", "activation_expires_at", "DATETIME", "NULL")
+        _ensure_sqlite_column("membership_request", "activated_at", "DATETIME", "NULL")
+        _ensure_sqlite_column("membership_request", "user_id", "INTEGER", "NULL")
         db.session.commit()
+        _backfill_membership_accounts()
     elif dialect == "postgresql":
         db.session.execute(db.text(
             'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS committee VARCHAR(120)'
@@ -1131,6 +1160,41 @@ def _upgrade_schema():
             "ON membership_request(lower(email)) "
             "WHERE status = 'pending' AND email IS NOT NULL"
         ))
+        # Membership-based account activation (replaces direct signup).
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activation_token_hash VARCHAR(64)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activation_expires_at TIMESTAMP"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS user_id INTEGER"
+        ))
+        db.session.commit()
+        _backfill_membership_accounts()
+
+
+def _backfill_membership_accounts():
+    """Approved requests from before activation links existed: if an
+    account with the same email is already there, mark the request as
+    activated so the leader dashboard doesn't offer to re-send a link.
+    Idempotent — only touches approved, not-yet-activated rows."""
+    rows = MembershipRequest.query.filter(
+        MembershipRequest.status == "approved",
+        MembershipRequest.activated_at.is_(None),
+        MembershipRequest.email.isnot(None),
+    ).all()
+    changed = False
+    for mr in rows:
+        user = _user_by_email(mr.email)
+        if user is not None:
+            mr.user_id = user.id
+            mr.activated_at = mr.reviewed_at or datetime.now()
+            changed = True
+    if changed:
         db.session.commit()
 
 
@@ -1329,24 +1393,35 @@ def submit_membership_request():
     name = text_field(data, "name")[:120]
     student_id = text_field(data, "student_id")[:50]
     major = text_field(data, "major")[:120]
-    email = normalize_email(text_field(data, "email"))[:120] or None
+    email = normalize_email(text_field(data, "email"))[:120]
     reason = text_field(data, "reason")[:2000] or None
-    if not name or not student_id or not major:
-        return jsonify({"error": "الاسم والرقم الجامعي والتخصص مطلوبة"}), 400
-    if email and not is_valid_email_format(email):
+    # Email is required: on approval the account-activation link goes there.
+    if not name or not student_id or not major or not email:
+        return jsonify({"error": "الاسم والرقم الجامعي والتخصص والبريد الإلكتروني مطلوبة"}), 400
+    if not is_valid_email_format(email):
         return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
+    existing_user = _user_by_email(email)
+    if existing_user is not None and existing_user.role != "visitor":
+        return jsonify({
+            "error": "هذا البريد مسجّل بعضوية في النادي بالفعل. يمكنك تسجيل الدخول مباشرة."
+        }), 409
+    awaiting_activation = MembershipRequest.query.filter(
+        MembershipRequest.status == "approved",
+        MembershipRequest.activated_at.is_(None),
+        db.func.lower(MembershipRequest.email) == email,
+    ).first()
+    if awaiting_activation is not None:
+        return jsonify({
+            "error": "طلبك مقبول مسبقاً. تحقق من بريدك الإلكتروني لتفعيل حسابك، أو تواصل مع إدارة النادي لإعادة إرسال الرابط."
+        }), 409
     # Block duplicate active applications by student_id OR email.
-    duplicate_q = MembershipRequest.query.filter_by(status="pending")
-    if email:
-        from sqlalchemy import or_, func
-        duplicate = duplicate_q.filter(
-            or_(
-                MembershipRequest.student_id == student_id,
-                func.lower(MembershipRequest.email) == email,
-            )
-        ).first()
-    else:
-        duplicate = duplicate_q.filter_by(student_id=student_id).first()
+    duplicate = MembershipRequest.query.filter(
+        MembershipRequest.status == "pending",
+        db.or_(
+            MembershipRequest.student_id == student_id,
+            db.func.lower(MembershipRequest.email) == email,
+        ),
+    ).first()
     if duplicate is not None:
         return jsonify({"error": "يوجد طلب نشط بنفس البيانات قيد المراجعة بالفعل"}), 409
     mr = MembershipRequest(
@@ -1677,13 +1752,6 @@ def _task_dict(t):
     }
 
 
-def invite_grants_member(invite_code):
-    if not isinstance(invite_code, str):
-        return False
-    expected = os.environ.get("INVITE_CODE", "PIONEERS2026")
-    return hmac.compare_digest(invite_code, expected)
-
-
 def public_user(user):
     return {"id": user.id, "email": user.email, "role": user.role}
 
@@ -1709,84 +1777,19 @@ def prefers_json():
     return json_quality > html_quality and json_quality > 0
 
 
-# JSON and form login/register POSTs have no CSRF protection yet.
-# A later iteration should add Flask-WTF/CSRF or token auth.
-@app.get("/register")
-def register_form():
-    return jsonify(
-        {
-            "fields": {
-                "name": "required",
-                "email": "required",
-                "password": "required",
-                "invite_code": "optional",
-            }
-        }
-    )
-
-
-@app.post("/register")
-def register():
-    data = submitted()
-    name = text_field(data, "name")
-    email = normalize_email(text_field(data, "email"))
-    password = data.get("password")
-    if not name or not email or not isinstance(password, str) or password == "":
-        return jsonify({"error": "الاسم والبريد الإلكتروني وكلمة المرور مطلوبة"}), 400
-    if not is_valid_email_format(email):
-        return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
-    if User.query.filter_by(email=email).first() is not None:
-        return jsonify({"error": "هذا البريد الإلكتروني مسجل مسبقاً"}), 409
-    # Role comes from either (a) a valid invite code, or (b) an existing
-    # approved MembershipRequest for the same email. Any client-supplied
-    # role is ignored.
-    has_invite = invite_grants_member(data.get("invite_code"))
-    has_approved_request = (
-        MembershipRequest.query
-        .filter_by(email=email, status="approved")
-        .first()
-        is not None
-    )
-    role = "member" if (has_invite or has_approved_request) else "visitor"
-    user = User(
-        name=name,
-        email=email,
-        password_hash=generate_password_hash(password),
-        role=role,
-    )
-    db.session.add(user)
-    try:
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({"error": "هذا البريد الإلكتروني مسجل مسبقاً"}), 409
-    email_sent = send_email(
-        user.email,
-        subject="تم إنشاء حسابك في نادي رواد الصناعة",
-        html_body=(
-            f"<p>مرحباً {user.name}،</p>"
-            "<p>تم إنشاء حسابك بنجاح في نادي رواد الصناعة.</p>"
-            "<p>بإمكانك الآن تسجيل الدخول واستكشاف الفعاليات والمحتوى.</p>"
-            "<p>— إدارة النادي</p>"
-        ),
-        text_body=(
-            f"مرحباً {user.name}،\n\n"
-            "تم إنشاء حسابك بنجاح في نادي رواد الصناعة.\n"
-            "بإمكانك الآن تسجيل الدخول واستكشاف الفعاليات والمحتوى.\n\n"
-            "— إدارة النادي"
-        ),
-    )
-    return jsonify({**public_user(user), "email_sent": email_sent}), 201
-
-
+# There is no self-service signup: accounts are created only through an
+# approved membership request (see /activate/<token>). /signup is kept as
+# a redirect so old links land on the membership application form.
 @app.get("/signup")
 def signup_form():
-    return render_template("signup.html")
+    return redirect(url_for("visitor_portal") + "#membership")
 
 
+# JSON and form login POSTs have no CSRF protection yet.
+# A later iteration should add Flask-WTF/CSRF or token auth.
 @app.get("/login")
 def login_form():
-    return render_template("login.html")
+    return render_template("login.html", activated=request.args.get("activated") == "1")
 
 
 @app.post("/login")
@@ -1794,7 +1797,7 @@ def login():
     data = submitted()
     email = text_field(data, "email")
     password = data.get("password")
-    user = User.query.filter_by(email=email).first() if email else None
+    user = _user_by_email(email)
     candidate = password if isinstance(password, str) else ""
     password_hash = user.password_hash if user is not None else _LOGIN_DUMMY_HASH
     valid = check_password_hash(password_hash, candidate)
@@ -2582,52 +2585,225 @@ def delete_sponsor(sponsor_id):
     return jsonify({"deleted": sponsor_id})
 
 
+# ---- Membership → account activation ----
+# Approval emails the applicant a single-use link to /activate/<token>.
+# Only the token's SHA-256 is stored; leaders can re-send (rotating the
+# token) if it expires or the email never arrived.
+ACTIVATION_LINK_DAYS = int(os.environ.get("ACTIVATION_LINK_DAYS", "7"))
+MIN_PASSWORD_LENGTH = 8
+_MEMBERSHIP_NEEDS_EMAIL = "لا يمكن اعتماد طلب بدون بريد إلكتروني، لأن رابط تفعيل الحساب يُرسل عليه."
+
+
+def _hash_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _public_url(endpoint, **values):
+    """Absolute URL for links inside emails. SITE_URL (e.g.
+    https://pioneers.example.com) wins so links never depend on the Host
+    header of the request that triggered the email."""
+    base = os.environ.get("SITE_URL", "").strip().rstrip("/")
+    if base:
+        return base + url_for(endpoint, **values)
+    return url_for(endpoint, _external=True, **values)
+
+
+def _email_html(name, paragraphs, button_label=None, button_url=None):
+    """RTL transactional email body. `name` comes from a public form and
+    is escaped here; `paragraphs` are trusted HTML written in this file."""
+    button = ""
+    if button_label and button_url:
+        url = escape(button_url)
+        button = (
+            '<p style="margin:28px 0;text-align:center">'
+            f'<a href="{url}" style="background:#1b365d;color:#ffffff;padding:12px 28px;'
+            'border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">'
+            f"{escape(button_label)}</a></p>"
+            '<p style="font-size:13px;color:#666">إذا لم يعمل الزر، انسخ الرابط التالي في المتصفح:<br>'
+            f'<a href="{url}" style="color:#1b365d;word-break:break-all">{url}</a></p>'
+        )
+    body = "".join(f"<p>{p}</p>" for p in paragraphs)
+    return (
+        '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;'
+        'line-height:1.8;color:#222;text-align:right">'
+        f"<p>مرحباً {escape(name)}،</p>{body}{button}<p>— إدارة النادي</p></div>"
+    )
+
+
+def _start_member_activation(mr):
+    """Give an approved applicant a way into their account. If an account
+    with this email already exists it is linked (a visitor is promoted to
+    member) and no link is needed; otherwise a fresh single-use token is
+    issued, replacing any earlier one. Returns the activation URL, or None
+    when an existing account was linked. Caller commits."""
+    existing = _user_by_email(mr.email)
+    if existing is not None:
+        if existing.role == "visitor":
+            existing.role = "member"
+        mr.user_id = existing.id
+        mr.activated_at = datetime.now()
+        mr.activation_token_hash = None
+        mr.activation_expires_at = None
+        return None
+    token = secrets.token_urlsafe(32)
+    mr.activation_token_hash = _hash_token(token)
+    mr.activation_expires_at = datetime.now() + timedelta(days=ACTIVATION_LINK_DAYS)
+    return _public_url("activate_account", token=token)
+
+
+def _send_membership_approval_email(mr, activation_url):
+    accepted = "يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة."
+    if activation_url:
+        html = _email_html(mr.name, [
+            accepted,
+            "لتفعيل حسابك اضغط على الزر أدناه واختر كلمة المرور الخاصة بك، "
+            "ثم سجّل دخولك للوصول إلى لوحة التحكم.",
+            f"صلاحية الرابط {ACTIVATION_LINK_DAYS} أيام، ويُستخدم مرة واحدة فقط.",
+        ], "تفعيل الحساب وتعيين كلمة المرور", activation_url)
+        text = (
+            f"مرحباً {mr.name}،\n\n"
+            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
+            "لتفعيل حسابك وتعيين كلمة المرور افتح الرابط التالي:\n"
+            f"{activation_url}\n\n"
+            f"صلاحية الرابط {ACTIVATION_LINK_DAYS} أيام، ويُستخدم مرة واحدة فقط.\n\n"
+            "— إدارة النادي"
+        )
+    else:
+        login_url = _public_url("login_form")
+        html = _email_html(mr.name, [
+            accepted,
+            "تمت ترقية حسابك المسجّل بهذا البريد إلى عضو. سجّل دخولك بكلمة مرورك الحالية.",
+        ], "تسجيل الدخول", login_url)
+        text = (
+            f"مرحباً {mr.name}،\n\n"
+            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
+            "تمت ترقية حسابك المسجّل بهذا البريد إلى عضو. سجّل دخولك بكلمة مرورك الحالية:\n"
+            f"{login_url}\n\n"
+            "— إدارة النادي"
+        )
+    return send_email(
+        mr.email,
+        subject="تم قبول طلب العضوية في نادي رواد الصناعة",
+        html_body=html,
+        text_body=text,
+    )
+
+
+def _membership_activation_json(mr, activation_url, email_sent):
+    return jsonify({
+        "id": mr.id,
+        "status": mr.status,
+        "activated": mr.activated_at is not None,
+        "user_id": mr.user_id,
+        # Returned to the leader so the link can be shared manually when
+        # email delivery is not configured or fails.
+        "activation_url": activation_url,
+        "activation_expires_at": (
+            mr.activation_expires_at.isoformat() if mr.activation_expires_at else None
+        ),
+        "email_sent": email_sent,
+    })
+
+
 @app.post("/leader/membership-requests/<int:req_id>/approve")
 @role_required("leader")
 def approve_membership_request(req_id):
-    """Phase 4: leader-only membership approval. Does NOT auto-create a user."""
+    """Leader-only approval. Emails the applicant a link to set their
+    password; the member account is created when they use it."""
     mr = db.session.get(MembershipRequest, req_id)
     if mr is None:
         abort(404)
     if mr.status != "pending":
         return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
+    if not mr.email:
+        return jsonify({"error": _MEMBERSHIP_NEEDS_EMAIL}), 400
     mr.status = "approved"
     mr.reviewed_by = current_user.id
     mr.reviewed_at = datetime.now()
-    # If the applicant already registered (same email), promote them to member
-    # so their next login lands on /member/profile instead of the visitor view.
-    promoted_user_id = None
-    if mr.email:
-        existing = User.query.filter_by(email=mr.email).first()
-        if existing is not None and existing.role == "visitor":
-            existing.role = "member"
-            promoted_user_id = existing.id
+    activation_url = _start_member_activation(mr)
     db.session.commit()
-    email_sent = send_email(
-        mr.email,
-        subject="تم قبول طلب العضوية في نادي رواد الصناعة",
-        html_body=(
-            f"<p>مرحباً {mr.name}،</p>"
-            "<p>يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة.</p>"
-            "<p>إذا كنت قد سجّلت حساباً بنفس البريد فقد تمّت ترقيته تلقائياً إلى عضو؛"
-            " وإلا بإمكانك إنشاء حساب عبر صفحة التسجيل.</p>"
-            "<p>— إدارة النادي</p>"
-        ),
-        text_body=(
-            f"مرحباً {mr.name}،\n\n"
-            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
-            "إذا كنت قد سجّلت حساباً بنفس البريد فقد رُقّي تلقائياً إلى عضو؛"
-            " وإلا بإمكانك إنشاء حساب عبر صفحة التسجيل.\n\n"
-            "— إدارة النادي"
-        ),
-    ) if mr.email else False
-    return jsonify({
-        "id": mr.id,
-        "status": mr.status,
-        "promoted_user_id": promoted_user_id,
-        "email_sent": email_sent,
-        "note": "تمت الموافقة. إذا كان المتقدم مسجلاً بنفس البريد فسيُفعَّل كعضو تلقائياً، وإلا يمكنه التسجيل عبر /signup برمز الدعوة.",
-    })
+    email_sent = _send_membership_approval_email(mr, activation_url)
+    return _membership_activation_json(mr, activation_url, email_sent)
+
+
+@app.post("/leader/membership-requests/<int:req_id>/resend-activation")
+@role_required("leader")
+def resend_membership_activation(req_id):
+    """Issue a fresh activation link (the previous one stops working) and
+    email it again — for expired links or emails that never arrived."""
+    mr = db.session.get(MembershipRequest, req_id)
+    if mr is None:
+        abort(404)
+    if mr.status != "approved":
+        return jsonify({"error": "الطلب غير معتمد"}), 409
+    if mr.activated_at is not None:
+        return jsonify({"error": "تم تفعيل حساب هذا العضو مسبقاً"}), 409
+    if not mr.email:
+        return jsonify({"error": _MEMBERSHIP_NEEDS_EMAIL}), 400
+    activation_url = _start_member_activation(mr)
+    db.session.commit()
+    email_sent = _send_membership_approval_email(mr, activation_url)
+    return _membership_activation_json(mr, activation_url, email_sent)
+
+
+def _activation_request_for(token):
+    """Return (membership_request, None) for a usable token, or
+    (None, error_message) when it is unknown, used, or expired."""
+    mr = None
+    if isinstance(token, str) and 0 < len(token) <= 128:
+        mr = MembershipRequest.query.filter_by(
+            activation_token_hash=_hash_token(token)
+        ).first()
+    if mr is None or mr.status != "approved" or mr.activated_at is not None:
+        return None, "رابط التفعيل غير صالح أو تم استخدامه مسبقاً."
+    if mr.activation_expires_at is None or mr.activation_expires_at < datetime.now():
+        return None, "انتهت صلاحية رابط التفعيل. تواصل مع إدارة النادي لإرسال رابط جديد."
+    return mr, None
+
+
+@app.route("/activate/<token>", methods=["GET", "POST"])
+def activate_account(token):
+    """Landing page of the approval email: the applicant sets a password
+    and their member account is created. Single use — the token is
+    cleared on success, then they are sent to the login page."""
+    mr, link_error = _activation_request_for(token)
+    if mr is None:
+        return render_template("activate-account.html", link_error=link_error), 400
+    if request.method == "GET":
+        return render_template("activate-account.html", mr=mr)
+
+    password = request.form.get("password", "")
+    confirm = request.form.get("password_confirm", "")
+    account_exists = "يوجد حساب مسجّل بهذا البريد بالفعل. سجّل دخولك، أو تواصل مع إدارة النادي."
+    error = None
+    if len(password) < MIN_PASSWORD_LENGTH:
+        error = f"كلمة المرور يجب أن تكون {MIN_PASSWORD_LENGTH} أحرف على الأقل."
+    elif password != confirm:
+        error = "كلمتا المرور غير متطابقتين."
+    elif _user_by_email(mr.email) is not None:
+        error = account_exists
+    if error:
+        return render_template("activate-account.html", mr=mr, error=error), 400
+
+    user = User(
+        name=mr.name,
+        email=normalize_email(mr.email),
+        password_hash=generate_password_hash(password),
+        role="member",
+    )
+    db.session.add(user)
+    try:
+        db.session.flush()
+    except IntegrityError:
+        # Same email registered concurrently (e.g. a double-submit).
+        db.session.rollback()
+        return render_template("activate-account.html", mr=mr, error=account_exists), 409
+    mr.user_id = user.id
+    mr.activated_at = datetime.now()
+    mr.activation_token_hash = None
+    mr.activation_expires_at = None
+    db.session.commit()
+    return redirect(url_for("login_form", activated=1))
 
 
 @app.post("/leader/membership-requests/<int:req_id>/reject")
@@ -2645,13 +2821,11 @@ def reject_membership_request(req_id):
     email_sent = send_email(
         mr.email,
         subject="تحديث بشأن طلب العضوية في نادي رواد الصناعة",
-        html_body=(
-            f"<p>مرحباً {mr.name}،</p>"
-            "<p>نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة."
-            " بعد المراجعة، <strong>لم يتم قبول طلب العضوية</strong> في هذه المرحلة.</p>"
-            "<p>يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.</p>"
-            "<p>— إدارة النادي</p>"
-        ),
+        html_body=_email_html(mr.name, [
+            "نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة."
+            " بعد المراجعة، <strong>لم يتم قبول طلب العضوية</strong> في هذه المرحلة.",
+            "يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.",
+        ]),
         text_body=(
             f"مرحباً {mr.name}،\n\n"
             "نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة.\n"

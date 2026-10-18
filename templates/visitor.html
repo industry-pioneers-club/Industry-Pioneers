@@ -282,8 +282,8 @@
             </div>
             <div class="form-group">
                 <label for="member-email">البريد الإلكتروني</label>
-                <input type="email" id="member-email" name="email" maxlength="120" placeholder="example@email.com">
-                <small style="color:#666">اختياري — يستخدمه القائد للتواصل معك عند قبول الطلب.</small>
+                <input type="email" id="member-email" name="email" maxlength="120" placeholder="example@email.com" required>
+                <small style="color:#666">عند قبول طلبك يصلك على هذا البريد رابط لتعيين كلمة المرور وتفعيل حسابك.</small>
             </div>
             <div class="form-group">
                 <label for="member-reason">لماذا تريد الانضمام لنادي رواد الصناعة؟</label>
@@ -333,6 +333,12 @@
             show(null);
         });
     });
+
+    // /visitor#membership (used by /signup, the login page and the footer)
+    // opens the membership application straight away.
+    const openFromHash = () => { if (location.hash === '#membership') show('membership'); };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
 
     // Safety: a stray Enter key inside a text input inside the hidden
     // panel shouldn't submit the OTHER panel's form. Since each form is a
