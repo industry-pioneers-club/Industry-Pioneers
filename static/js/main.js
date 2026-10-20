@@ -3,7 +3,7 @@ const path=location.pathname.replace(/\/+$/,'')||'/';
 const NAV=[['/','الرئيسية'],['/about','عن النادي'],['/events','الفعاليات'],['/gazette','جريدة الصناعة'],['/partners','الشركاء والرعاة']];
 
 /* Shared navbar + footer (edit once, applies to every page) */
-document.body.insertAdjacentHTML('afterbegin',`<header class="nav"><a class="brand" href="/"><img src="/static/Image/club-logo.png" alt="نادي رواد الصناعة"><i></i><img src="/static/Image/taibah-logo.png" alt="جامعة طيبة"></a>
+document.body.insertAdjacentHTML('afterbegin',`<header class="nav"><a class="brand" href="/"><img src="/static/Image/logo.png" alt="نادي رواد الصناعة"><i></i><img src="/static/Image/taibah-logo.png" alt="جامعة طيبة"></a>
 <button class="burger" aria-label="القائمة">☰</button><div class="menu"><nav class="links">${NAV.map(([h,t])=>`<a href="${h}"${h===path?' class="on"':''}>${t}</a>`).join('')}</nav><div id="auth-slot" class="auth-group"></div></div></header>`);
 const authSource=document.getElementById('auth-links-source');
 const authSlot=document.getElementById('auth-slot');
