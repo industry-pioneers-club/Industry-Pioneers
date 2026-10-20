@@ -61,10 +61,13 @@ img{
 }
 .brand img
 {width:auto;
-    max-height:100%
+    max-height:100%;
+    object-fit:contain
 }
+/* Club logo (logo.png, ~1:1) is sized to read as large as the wider Taibah
+   logo beside it: at 58px its symbol matches the Taibah mark's height. */
 .brand img:first-child{
-    height:44px
+    height:58px
 }
 .brand img:last-child{
     height:54px}
@@ -671,7 +674,7 @@ footer{
 .grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:640px){
-.brand img:first-child{height:34px}
+.brand img:first-child{height:43px}
 .brand img:last-child{height:40px}
 .brand i{height:34px}
 .brand{gap:10px}
