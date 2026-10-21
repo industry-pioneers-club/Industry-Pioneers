@@ -19,7 +19,7 @@
 <a class="login-btn" href="{{ url_for('login_form') }}">تسجيل الدخول</a>
 {% endif %}
 </template>
-<main class="lp"><form class="lc" id="loginForm" method="post" action="{{ url_for('login') }}" novalidate><h1>تسجيل الدخول</h1>{% if error %}<p>{{ error }}</p>{% endif %}<label for="id">الرقم الجامعي / البريد الإلكتروني</label><input id="id" name="email" autocomplete="username"><label for="pw">كلمة المرور</label><input id="pw" name="password" type="password" autocomplete="current-password"><button class="btn" type="submit">تسجيل الدخول</button><p style="margin-top:16px;text-align:center">ليس لديك حساب؟ <a href="{{ url_for('signup_form') }}">سجل الآن</a></p></form></main>
+<main class="lp"><form class="lc" id="loginForm" method="post" action="{{ url_for('login') }}" novalidate><h1>تسجيل الدخول</h1>{% if activated %}<p style="padding:10px 14px;border-radius:8px;background:#d4edda;color:#155724;font-weight:700">تم تفعيل حسابك بنجاح. سجّل دخولك بالبريد وكلمة المرور الجديدة.</p>{% endif %}{% if error %}<p>{{ error }}</p>{% endif %}<label for="id">الرقم الجامعي / البريد الإلكتروني</label><input id="id" name="email" autocomplete="username"><label for="pw">كلمة المرور</label><input id="pw" name="password" type="password" autocomplete="current-password"><button class="btn" type="submit">تسجيل الدخول</button><p style="margin-top:16px;text-align:center">لست عضواً بعد؟ <a href="{{ url_for('visitor_portal') }}#membership">قدّم طلب العضوية</a></p></form></main>
 {% include "_footer.html" %}
 </body>
 </html>

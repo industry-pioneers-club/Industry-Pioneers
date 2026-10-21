@@ -61,10 +61,13 @@ img{
 }
 .brand img
 {width:auto;
-    max-height:100%
+    max-height:100%;
+    object-fit:contain
 }
+/* Club logo (logo.png, ~1:1) is sized to read as large as the wider Taibah
+   logo beside it: at 58px its symbol matches the Taibah mark's height. */
 .brand img:first-child{
-    height:44px
+    height:58px
 }
 .brand img:last-child{
     height:54px}
@@ -298,9 +301,14 @@ img{
 .about .ph{
     border-radius:14px;
     overflow:hidden;
-    aspect-ratio:16/9;
-    background:linear-gradient(135deg,var(--pn),var(--ib));
+    background:#fff;
     box-shadow:0 10px 26px rgba(3,27,42,.18)
+}
+.about .ph img{
+    display:block;
+    width:100%;
+    height:auto;
+    object-fit:cover
 }
 
 .ph img{
@@ -666,7 +674,7 @@ footer{
 .grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:640px){
-.brand img:first-child{height:34px}
+.brand img:first-child{height:43px}
 .brand img:last-child{height:40px}
 .brand i{height:34px}
 .brand{gap:10px}
@@ -1285,6 +1293,27 @@ html,body{max-width:100vw; overflow-x:hidden}
     min-height: 38px;
     padding: 8px 12px;
     font-size: 13.5px;
+}
+/* Checkboxes must stay at their native size — the generic input rule
+   above would otherwise stretch them into a 38px square. Keep them
+   inline with their label text. */
+#modal #box.ev-modal .dashboard-form input[type="checkbox"] {
+    min-height: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    flex: 0 0 auto;
+    vertical-align: middle;
+    accent-color: var(--pn, #1b365d);
+}
+#modal #box.ev-modal .dashboard-form label:has(> input[type="checkbox"]) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    margin: 4px 0;
+    cursor: pointer;
 }
 /* Date+time pairs: two columns on desktop, stack on mobile. */
 #modal #box.ev-modal .dashboard-form .form-row,

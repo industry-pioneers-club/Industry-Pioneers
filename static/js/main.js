@@ -3,7 +3,7 @@ const path=location.pathname.replace(/\/+$/,'')||'/';
 const NAV=[['/','الرئيسية'],['/about','عن النادي'],['/events','الفعاليات'],['/gazette','جريدة الصناعة'],['/partners','الشركاء والرعاة']];
 
 /* Shared navbar + footer (edit once, applies to every page) */
-document.body.insertAdjacentHTML('afterbegin',`<header class="nav"><a class="brand" href="/"><img src="/static/Image/club-logo.png" alt="نادي رواد الصناعة"><i></i><img src="/static/Image/taibah-logo.png" alt="جامعة طيبة"></a>
+document.body.insertAdjacentHTML('afterbegin',`<header class="nav"><a class="brand" href="/"><img src="/static/Image/logo.png" alt="نادي رواد الصناعة"><i></i><img src="/static/Image/taibah-logo.png" alt="جامعة طيبة"></a>
 <button class="burger" aria-label="القائمة">☰</button><div class="menu"><nav class="links">${NAV.map(([h,t])=>`<a href="${h}"${h===path?' class="on"':''}>${t}</a>`).join('')}</nav><div id="auth-slot" class="auth-group"></div></div></header>`);
 const authSource=document.getElementById('auth-links-source');
 const authSlot=document.getElementById('auth-slot');
@@ -38,12 +38,50 @@ window.modal = modal;
 window.toast = toast;
 window.closeModal = closeModal;
 
-/* Event search and chips filter the server-rendered cards. */
+/* Event search + chip filter. The chip label matches Event.category
+   stored on each card via data-category (see events.html). Full-text
+   search still works across the card's visible text. */
 const evBox=$('#upcoming');
-if(evBox){let cat='الكل';const q=$('#q');
- const draw=()=>{const query=(q&&q.value?q.value:'').trim();['#upcoming','#previous'].forEach(sel=>{const box=$(sel);if(!box)return;const cards=$$('.ev',box);let shown=0;cards.forEach(card=>{const text=card.textContent||'';const ok=(cat==='الكل'||text.includes(cat))&&text.includes(query);card.style.display=ok?'':'none';if(ok)shown+=1});let note=$('.empty',box);if(!shown){if(!note){note=document.createElement('p');note.className='empty';note.textContent='لا توجد نتائج مطابقة';box.appendChild(note)}note.style.display=''}else if(note)note.style.display='none'})};
- $$('.chip').forEach(b=>b.onclick=()=>{$$('.chip').forEach(x=>x.classList.remove('on'));b.classList.add('on');cat=b.textContent;draw()});
- if(q)q.oninput=draw}
+if(evBox){
+    let cat='الكل';
+    const q=$('#q');
+    const draw=()=>{
+        const query=(q&&q.value?q.value:'').trim();
+        ['#upcoming','#previous'].forEach(sel=>{
+            const box=$(sel);if(!box)return;
+            const cards=$$('.ev',box);
+            let shown=0;
+            cards.forEach(card=>{
+                const cardCat = (card.dataset.category || '').trim();
+                const text = card.textContent || '';
+                const matchesCat = (cat === 'الكل') || (cardCat === cat);
+                const matchesQuery = !query || text.includes(query);
+                const ok = matchesCat && matchesQuery;
+                card.style.display = ok ? '' : 'none';
+                if (ok) shown += 1;
+            });
+            let note=$('.empty',box);
+            if(!shown){
+                if(!note){
+                    note=document.createElement('p');
+                    note.className='empty';
+                    note.textContent='لا توجد نتائج مطابقة';
+                    box.appendChild(note);
+                }
+                note.style.display='';
+            } else if (note) {
+                note.style.display='none';
+            }
+        });
+    };
+    $$('.chip').forEach(b=>b.onclick=()=>{
+        $$('.chip').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on');
+        cat = (b.textContent || '').trim();
+        draw();
+    });
+    if(q) q.oninput = draw;
+}
 
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-article-id]');if(!b)return;const id=b.dataset.articleId;try{const res=await fetch('/like_article/'+id,{method:'POST',headers:{Accept:'application/json'}});if(!res.ok)return;const data=await res.json();const count=b.querySelector('span');if(count&&typeof data.likes_count==='number')count.textContent=data.likes_count;b.classList.add('on')}catch(err){}});
 
@@ -164,15 +202,41 @@ if (leaderPage) {
         obs.observe(m, { attributes: true, attributeFilter: ['class'] });
     };
 
+    // Resolve a stored Event.image_path to a browsable URL for the modal
+    // preview. Supports both the DB-backed virtual path 'event-image/<id>'
+    // (served by /events/<id>/image) and legacy static-folder paths.
+    const resolveEventImageUrl = (p) => {
+        if (!p) return '';
+        if (p.indexOf('event-image/') === 0) {
+            return '/events/' + p.slice('event-image/'.length) + '/image';
+        }
+        return '/static/' + p.replace(/^\/+/, '');
+    };
+
     /* -------- ADD EVENT (real backend) --------
        Collects only the fields the Event model stores:
        title, date, time, is_public, image_path. */
+    // Phase 10: canonical "نوع الفعالية" vocabulary — read from the server
+    // via the leader-dashboard-data JSON block so it stays in sync with
+    // app.py's EVENT_CATEGORIES without duplication in JS.
+    const EVENT_CATEGORIES = (leaderData.event_categories && leaderData.event_categories.length)
+        ? leaderData.event_categories
+        : ['ورش', 'زيارات', 'ملتقيات', 'مسابقات'];
+    const categoryOptions = (selected='') =>
+        '<option value="">— اختر نوع الفعالية —</option>' +
+        EVENT_CATEGORIES.map(c =>
+            `<option value="${c}"${selected === c ? ' selected' : ''}>${c}</option>`
+        ).join('');
+
     $('#addEventBtn')?.addEventListener('click',()=>{
         modal(`
             <h3>إنشاء فعالية جديدة</h3>
             <div class="dashboard-form">
                 <label>عنوان الفعالية *</label>
                 <input id="newEventName" placeholder="عنوان الفعالية" maxlength="200">
+
+                <label>نوع الفعالية *</label>
+                <select id="newEventCategory" required>${categoryOptions()}</select>
 
                 <div class="form-row">
                     <div>
@@ -205,27 +269,49 @@ if (leaderPage) {
                     سنُشعر الأعضاء الذين يطابقون اهتماماتهم أياً من هذه التصنيفات عند نشر الفعالية.
                 </p>
 
+                <label>اسم المكان (اختياري)</label>
+                <input id="newEventLocationName" maxlength="200" placeholder="مثال: قاعة الملتقى، كلية الهندسة">
+
+                <label>رابط الموقع (اختياري)</label>
+                <input id="newEventLocationUrl" type="url" maxlength="500" placeholder="https://maps.google.com/...">
+                <p style="font-size:13px;color:#666;margin:4px 0 0">يمكن لصق رابط Google Maps أو أي رابط خرائط آخر.</p>
+
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                     <input id="newEventIsPublic" type="checkbox">
                     <span>عرض الفعالية على الصفحة العامة</span>
                 </label>
 
-                <label>مسار الشعار (داخل static/ — اختياري)</label>
-                <input id="newEventImagePath" placeholder="Image/event-4.png">
-                <p style="font-size:13px;color:#666;margin:4px 0 0">يجب أن يكون المسار لملف موجود داخل مجلد static/. مثال: <code>Image/event-4.png</code></p>
+                <label>صورة الفعالية <span style="font-weight:400;color:#888">(اختياري — JPG / PNG / WEBP، الحد الأقصى 5MB)</span></label>
+                <input id="newEventImageFile" type="file" accept="image/jpeg,image/png,image/webp">
+                <div id="newEventImagePreview" style="margin-top:10px;display:none">
+                    <img alt="معاينة" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #e5e7eb">
+                </div>
 
                 <button class="btn btn-o" id="saveNewEvent">حفظ الفعالية</button>
             </div>
         `);
         applyEvModalScope();
+        // Live preview for the new-event image picker.
+        const newImgInput = $('#newEventImageFile');
+        const newImgPrev = $('#newEventImagePreview');
+        newImgInput?.addEventListener('change', () => {
+            const f = newImgInput.files && newImgInput.files[0];
+            if (!f) { newImgPrev.style.display = 'none'; return; }
+            const img = newImgPrev.querySelector('img');
+            img.src = URL.createObjectURL(f);
+            newImgPrev.style.display = 'block';
+        });
         $('#saveNewEvent').onclick = async () => {
             const title = $('#newEventName').value.trim();
+            const category = $('#newEventCategory').value;
             const date = $('#newEventDate').value;
             const time = $('#newEventTime').value;
             if (!title) return toast('يرجى إدخال عنوان الفعالية');
+            if (!category) return toast('نوع الفعالية مطلوب');
             if (!date) return toast('يرجى تحديد تاريخ الفعالية');
             const fd = new FormData();
             fd.append('title', title);
+            fd.append('category', category);
             fd.append('date', date);
             fd.append('time', time || '00:00');
             fd.append('is_public', $('#newEventIsPublic').checked ? '1' : '0');
@@ -239,8 +325,12 @@ if (leaderPage) {
             if (cap !== '') fd.append('capacity', cap);
             const tags = $('#newEventTags').value.trim();
             if (tags) fd.append('tags', tags);
-            const img = $('#newEventImagePath').value.trim();
-            if (img) fd.append('image_path', img);
+            const locName = $('#newEventLocationName').value.trim();
+            if (locName) fd.append('location_name', locName);
+            const locUrl = $('#newEventLocationUrl').value.trim();
+            if (locUrl) fd.append('location_url', locUrl);
+            const imgFile = newImgInput && newImgInput.files && newImgInput.files[0];
+            if (imgFile) fd.append('image', imgFile);
             try {
                 const res = await fetch('/leader/events', {method:'POST', body: fd});
                 if (!res.ok) {
@@ -277,9 +367,14 @@ if (leaderPage) {
         const deadlineDate = row.dataset.eventDeadlineDate || '';
         const deadlineTime = row.dataset.eventDeadlineTime || '';
         const tags = row.dataset.eventTags || '';
+        const category = row.dataset.eventCategory || '';
+        const locationName = row.dataset.eventLocationName || '';
+        const locationUrl = row.dataset.eventLocationUrl || '';
         const titleAttr = title.replace(/"/g, '&quot;');
         const imageAttr = image.replace(/"/g, '&quot;');
         const tagsAttr = tags.replace(/"/g, '&quot;');
+        const locationNameAttr = locationName.replace(/"/g, '&quot;');
+        const locationUrlAttr = locationUrl.replace(/"/g, '&quot;');
         modal(`
             <h3>تعديل الفعالية</h3>
             <p style="color:#888;font-size:13px;margin:4px 0 10px">
@@ -288,6 +383,9 @@ if (leaderPage) {
             <div class="dashboard-form">
                 <label>عنوان الفعالية *</label>
                 <input id="editEventTitle" type="text" maxlength="200" value="${titleAttr}">
+
+                <label>نوع الفعالية *</label>
+                <select id="editEventCategory" required>${categoryOptions(category)}</select>
 
                 <div class="lb-field-row">
                     <div>
@@ -318,56 +416,139 @@ if (leaderPage) {
                 <input id="editEventTags" type="text" value="${tagsAttr}"
                        placeholder="مثال: الابتكار, ورش هندسية">
 
+                <label>اسم المكان (اختياري)</label>
+                <input id="editEventLocationName" type="text" maxlength="200" value="${locationNameAttr}"
+                       placeholder="مثال: قاعة الملتقى، كلية الهندسة">
+
+                <label>رابط الموقع (اختياري)</label>
+                <input id="editEventLocationUrl" type="url" maxlength="500" value="${locationUrlAttr}"
+                       placeholder="https://maps.google.com/...">
+
                 <label style="display:flex;align-items:center;gap:8px;margin-top:14px">
                     <input id="editEventPublic" type="checkbox" ${isPublic ? 'checked' : ''}
                            style="width:auto;height:auto;margin:0">
                     <span>فعالية عامة (ظاهرة للزوار وقابلة للتسجيل)</span>
                 </label>
 
-                <label style="margin-top:14px">مسار الصورة داخل static/ (اختياري)</label>
-                <input id="editEventImage" type="text" value="${imageAttr}"
-                       placeholder="مثال: Image/event-4.png">
-                <small style="color:#666">اتركه فارغاً لإزالة الصورة.</small>
+                <label style="margin-top:14px">صورة الفعالية <span style="font-weight:400;color:#888">(JPG / PNG / WEBP — اختر صورة جديدة لاستبدال الحالية)</span></label>
+                <input id="editEventImageFile" type="file" accept="image/jpeg,image/png,image/webp">
+                <div id="editEventImagePreview" style="margin-top:10px;${image ? '' : 'display:none'}">
+                    <img alt="الصورة الحالية" src="${imageAttr ? resolveEventImageUrl(image) : ''}"
+                         style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #e5e7eb">
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+                    <input id="editEventImageRemove" type="checkbox" style="width:auto;height:auto;margin:0">
+                    <span>إزالة الصورة الحالية</span>
+                </label>
+
+                <p id="editEventError" style="display:none;color:#c0392b;background:#fdecea;border:1px solid #f5c6cb;padding:8px 12px;border-radius:8px;margin:12px 0 0;font-size:13.5px"></p>
 
                 <div class="row" style="margin-top:16px">
-                    <button class="btn btn-o" id="saveEventEdit">حفظ التعديل</button>
+                    <button type="button" class="btn btn-o" id="saveEventEdit">حفظ التعديل</button>
                     <button class="btn btn-s" type="button" data-close>إلغاء</button>
                 </div>
             </div>
         `);
         applyEvModalScope();
-        $('#saveEventEdit').onclick = async () => {
+        const editErrorBox = $('#editEventError');
+        const showEditError = (msg) => {
+            if (editErrorBox) {
+                editErrorBox.textContent = msg;
+                editErrorBox.style.display = 'block';
+                editErrorBox.scrollIntoView({behavior:'smooth', block:'center'});
+            }
+            toast(msg);
+        };
+        // Live preview: when the user picks a new file, show it.
+        const editImgInput = $('#editEventImageFile');
+        const editImgPrev = $('#editEventImagePreview');
+        const editImgRemove = $('#editEventImageRemove');
+        editImgInput?.addEventListener('change', () => {
+            const f = editImgInput.files && editImgInput.files[0];
+            if (!f) return;
+            const img = editImgPrev.querySelector('img');
+            img.src = URL.createObjectURL(f);
+            editImgPrev.style.display = 'block';
+            if (editImgRemove) editImgRemove.checked = false;
+        });
+        editImgRemove?.addEventListener('change', () => {
+            if (editImgRemove.checked) {
+                editImgPrev.style.display = 'none';
+                if (editImgInput) editImgInput.value = '';
+            } else if (image) {
+                const img = editImgPrev.querySelector('img');
+                img.src = resolveEventImageUrl(image);
+                editImgPrev.style.display = 'block';
+            }
+        });
+        const saveBtn = $('#saveEventEdit');
+        const onSaveEdit = async (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            if (saveBtn.disabled) return;
+            if (editErrorBox) editErrorBox.style.display = 'none';
             const newTitle = $('#editEventTitle').value.trim();
+            // Legacy events predate the category field (NULL in DB) — do not
+            // block editing them. Only enforce category when the user picked
+            // one or when it was already set; the backend edit endpoint
+            // treats category as optional on update.
+            const newCategory = $('#editEventCategory').value;
             const newDate = $('#editEventDate').value;
             const newTime = $('#editEventTime').value;
-            if (!newTitle) return toast('يرجى إدخال عنوان الفعالية');
-            if (!newDate || !newTime) return toast('يرجى إدخال التاريخ والوقت');
+            if (!newTitle) return showEditError('يرجى إدخال عنوان الفعالية');
+            if (!newDate || !newTime) return showEditError('يرجى إدخال التاريخ والوقت');
             const fd = new FormData();
             fd.append('title', newTitle);
+            // Only send category if non-empty — avoids clearing it to NULL
+            // when the row never had one (would otherwise be a silent change).
+            if (newCategory) fd.append('category', newCategory);
             fd.append('date', newDate);
             fd.append('time', newTime);
             fd.append('is_public', $('#editEventPublic').checked ? '1' : '0');
-            fd.append('image_path', $('#editEventImage').value.trim());
+            // Image: send the new file if picked; else send image_path=""
+            // only when the user explicitly asked to remove; else send
+            // nothing so the backend preserves the existing image.
+            const editImgFile = editImgInput && editImgInput.files && editImgInput.files[0];
+            if (editImgFile) {
+                fd.append('image', editImgFile);
+            } else if (editImgRemove && editImgRemove.checked) {
+                fd.append('image_path', '');
+            }
             // Always submit these three so edits clear them when emptied.
             fd.append('registration_deadline_date', $('#editEventDeadlineDate').value);
             fd.append('registration_deadline_time', $('#editEventDeadlineTime').value || '23:59');
             fd.append('capacity', $('#editEventCapacity').value.trim());
             fd.append('tags', $('#editEventTags').value.trim());
+            // Always submit so edits clear the venue fields when emptied.
+            fd.append('location_name', $('#editEventLocationName').value.trim());
+            fd.append('location_url', $('#editEventLocationUrl').value.trim());
+            const originalLabel = saveBtn.textContent;
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'جارٍ الحفظ…';
             try {
                 const res = await fetch(`/leader/events/${id}/edit`, {method:'POST', body: fd});
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({error:'فشل الحفظ'}));
-                    return toast(err.error || 'فشل الحفظ');
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = originalLabel;
+                    return showEditError(err.error || 'فشل الحفظ');
                 }
                 const data = await res.json().catch(() => ({}));
                 closeModal();
-                let msg = 'تم تعديل الفعالية';
+                let msg = 'تم حفظ التعديل';
                 if (data.promoted) msg += ` · رُقّي ${data.promoted} من قائمة الانتظار`;
                 if (data.notified_members) msg += ` · أُشعر ${data.notified_members} عضواً`;
                 toast(msg);
                 location.reload();
-            } catch (_) { toast('تعذر الاتصال بالخادم'); }
+            } catch (_) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalLabel;
+                showEditError('تعذر الاتصال بالخادم');
+            }
         };
+        // Bind via both addEventListener and onclick so a stray reassignment
+        // elsewhere can't silently remove the handler.
+        saveBtn.addEventListener('click', onSaveEdit);
+        saveBtn.onclick = onSaveEdit;
     });
 
     /* -------- DELETE EVENT (dependency-aware) -------- */
@@ -541,27 +722,48 @@ if (leaderPage) {
        The old in-memory approvalStatuses block was removed. ------- */
 
     /* -------- SPONSORS (real backend) -------- */
-    $('#addSponsorBtn')?.addEventListener('click',()=>{
-        modal(`
-            <h3>إضافة راعٍ</h3>
+    const sponsorFormBody = (vals) => {
+        const v = vals || {name:'', tier:'Partner', logo:'', status:'current'};
+        const esc = s => (s || '').replace(/"/g, '&quot;');
+        return `
             <div class="dashboard-form">
-                <label>اسم الراعي</label>
-                <input id="sponsorName" placeholder="اسم الراعي">
+                <label>اسم الراعي *</label>
+                <input id="sponsorName" placeholder="اسم الراعي" value="${esc(v.name)}">
                 <label>الفئة</label>
-                <input id="sponsorTier" placeholder="Partner / Gold / Silver" value="Partner">
+                <input id="sponsorTier" placeholder="Partner / Gold / Silver" value="${esc(v.tier) || 'Partner'}">
                 <label>مسار شعار الراعي (داخل مجلد static فقط)</label>
-                <input id="sponsorImage" placeholder="Image/sponsor.png">
-                <p style="font-size:13px;color:#666">يجب أن يكون المسار لملف موجود داخل static/. مثال: <code>Image/club-logo.png</code></p>
-                <button class="btn btn-o" id="saveSponsor">إضافة الراعي</button>
+                <input id="sponsorImage" placeholder="Image/sponsor.png" value="${esc(v.logo)}">
+                <p style="font-size:13px;color:#666;margin:4px 0 0">يجب أن يكون المسار لملف موجود داخل static/. مثال: <code>Image/club-logo.png</code></p>
+                <label>حالة الراعي *</label>
+                <select id="sponsorStatus" required>
+                    <option value="current" ${v.status === 'current' ? 'selected' : ''}>حالي</option>
+                    <option value="previous" ${v.status === 'previous' ? 'selected' : ''}>سابق</option>
+                </select>
             </div>
-        `);
+        `;
+    };
+    const readSponsorForm = () => {
+        const name = $('#sponsorName').value.trim();
+        if (!name) { toast('يرجى إدخال اسم الراعي'); return null; }
+        const status = $('#sponsorStatus').value;
+        if (status !== 'current' && status !== 'previous') {
+            toast('يرجى اختيار حالة الراعي');
+            return null;
+        }
+        const fd = new FormData();
+        fd.append('name', name);
+        fd.append('tier', $('#sponsorTier').value.trim() || 'Partner');
+        fd.append('logo_path', $('#sponsorImage').value.trim());
+        fd.append('status', status);
+        return fd;
+    };
+
+    $('#addSponsorBtn')?.addEventListener('click',()=>{
+        modal(`<h3>إضافة راعٍ</h3>${sponsorFormBody()}
+            <div class="row" style="margin-top:12px"><button class="btn btn-o" id="saveSponsor">إضافة الراعي</button></div>`);
         $('#saveSponsor').onclick = async () => {
-            const name = $('#sponsorName').value.trim();
-            if (!name) return toast('يرجى إدخال اسم الراعي');
-            const fd = new FormData();
-            fd.append('name', name);
-            fd.append('tier', $('#sponsorTier').value.trim() || 'Partner');
-            fd.append('logo_path', $('#sponsorImage').value.trim());
+            const fd = readSponsorForm();
+            if (!fd) return;
             try {
                 const res = await fetch('/leader/sponsors', {method:'POST', body: fd});
                 if (!res.ok) {
@@ -570,6 +772,36 @@ if (leaderPage) {
                 }
                 closeModal();
                 toast('تمت إضافة الراعي');
+                location.reload();
+            } catch (_) { toast('تعذر الاتصال بالخادم'); }
+        };
+    });
+
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('[data-edit-sponsor]');
+        if (!btn) return;
+        const card = btn.closest('.sponsor-dashboard-card');
+        if (!card) return;
+        const id = btn.dataset.editSponsor;
+        const vals = {
+            name: card.dataset.sponsorName || '',
+            tier: card.dataset.sponsorTier || 'Partner',
+            logo: card.dataset.sponsorLogo || '',
+            status: card.dataset.sponsorStatus === 'previous' ? 'previous' : 'current',
+        };
+        modal(`<h3>تعديل الراعي</h3>${sponsorFormBody(vals)}
+            <div class="row" style="margin-top:12px"><button class="btn btn-o" id="saveSponsorEdit">حفظ التعديل</button></div>`);
+        $('#saveSponsorEdit').onclick = async () => {
+            const fd = readSponsorForm();
+            if (!fd) return;
+            try {
+                const res = await fetch(`/leader/sponsors/${id}/edit`, {method:'POST', body: fd});
+                if (!res.ok) {
+                    const err = await res.json().catch(()=>({error:'فشل الحفظ'}));
+                    return toast(err.error || 'فشل الحفظ');
+                }
+                closeModal();
+                toast('تم حفظ التعديل');
                 location.reload();
             } catch (_) { toast('تعذر الاتصال بالخادم'); }
         };
@@ -675,66 +907,10 @@ if (supervisorPage) {
 
 
 /* =========================================
-   PHASE 0 — SIGNUP + MEMBER TASK STATUS
+   PHASE 0 — MEMBER TASK STATUS
    ========================================= */
 
 (function () {
-    const sq = (s, r = document) => r.querySelector(s);
-
-    /* ---------- Signup form (templates/signup.html) ---------- */
-    const signupForm = sq('#signupForm');
-    if (signupForm) {
-        const errorBox = sq('#signupError');
-        const showError = (msg) => {
-            if (!errorBox) return;
-            errorBox.textContent = msg;
-            errorBox.style.display = msg ? 'block' : 'none';
-        };
-
-        signupForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            showError('');
-
-            const name = sq('#su-name').value.trim();
-            const email = sq('#su-email').value.trim();
-            const password = sq('#su-password').value;
-            const invite = sq('#su-invite').value.trim();
-
-            if (!name) return showError('يرجى إدخال الاسم');
-            if (!email) return showError('يرجى إدخال البريد الإلكتروني');
-            if (!password || password.length < 8) return showError('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
-
-            const payload = { name, email, password };
-            if (invite) payload.invite_code = invite;
-
-            try {
-                const res = await fetch('/register', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(payload)
-                });
-                if (res.status === 201) {
-                    window.location.href = '/login';
-                    return;
-                }
-                let data = {};
-                try { data = await res.json(); } catch (_) {}
-                if (res.status === 409) {
-                    showError('البريد الإلكتروني مسجل بالفعل');
-                } else if (res.status === 400) {
-                    showError(data.error || 'البيانات غير مكتملة');
-                } else {
-                    showError('تعذر إنشاء الحساب (' + res.status + ')');
-                }
-            } catch (err) {
-                showError('تعذر الاتصال بالخادم');
-            }
-        });
-    }
-
     /* ---------- Task status update (templates/tasks.html) ---------- */
     document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-update-status]');
@@ -856,6 +1032,31 @@ if (supervisorPage) {
         msgBox.style.background = ok ? '#d4edda' : '#f8d7da';
         msgBox.style.color = ok ? '#155724' : '#721c24';
     };
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const showSuccessPopup = (email, committeeName, hasLeader) => {
+        const committeeHtml = `لجنة <strong style="color:var(--pn)">${esc(committeeName)}</strong>`;
+        const reviewLine = !committeeName
+            ? 'سيراجع فريق النادي طلبك قريباً.'
+            : hasLeader
+            ? `سيراجع قائد ${committeeHtml} طلبك قريباً.`
+            : `سيراجع فريق النادي طلب انضمامك إلى ${committeeHtml} قريباً.`;
+        if (typeof modal !== 'function') {
+            showMsg('تم استلام طلبك بنجاح. عند قبوله ستصلك رسالة على بريدك الإلكتروني فيها رابط لتفعيل حسابك.', true);
+            return;
+        }
+        if (msgBox) msgBox.style.display = 'none';
+        modal(`<div style="text-align:center">
+<div style="width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:#d4edda;display:grid;place-items:center">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px;stroke:#1e7e34;stroke-width:3"><polyline points="20 6 9 17 4 12"/></svg>
+</div>
+<h3 style="color:var(--pn);font-size:21px">تم إرسال طلبك بنجاح</h3>
+<p style="margin-top:10px;line-height:1.9;color:#444">شكراً لاهتمامك بالانضمام إلى نادي رواد الصناعة، ${reviewLine}</p>
+<p style="margin-top:8px;line-height:1.9;color:#444">عند قبول طلبك ستصلك رسالة على بريدك الإلكتروني<br><strong dir="ltr" style="color:var(--pn);word-break:break-all">${esc(email)}</strong><br>فيها رابط لتعيين كلمة المرور وتفعيل حسابك.</p>
+<p style="margin-top:8px;font-size:13px;color:#777">إذا لم تجد الرسالة، تحقق من مجلد الرسائل غير المرغوب فيها (Spam).</p>
+<button type="button" class="btn btn-o" data-close style="margin-top:18px">حسناً</button>
+</div>`);
+    };
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const payload = {
@@ -863,12 +1064,20 @@ if (supervisorPage) {
             student_id: form.student_id.value.trim(),
             major: form.major.value.trim(),
             email: form.email.value.trim(),
+            committee_id: form.committee_id.value,
             reason: form.reason.value.trim(),
         };
-        if (!payload.name || !payload.student_id || !payload.major) {
-            showMsg('يرجى تعبئة الاسم والرقم الجامعي والتخصص', false);
+        if (!payload.name || !payload.student_id || !payload.major || !payload.email) {
+            showMsg('يرجى تعبئة الاسم والرقم الجامعي والتخصص والبريد الإلكتروني', false);
             return;
         }
+        if (!payload.committee_id) {
+            showMsg('يرجى اختيار اللجنة التي تريد الانضمام إليها', false);
+            return;
+        }
+        const committeeOpt = form.committee_id.selectedOptions[0];
+        const committeeName = committeeOpt?.textContent.trim() || '';
+        const committeeHasLeader = committeeOpt?.dataset.hasLeader === '1';
         try {
             const res = await fetch('/visitor/membership-request', {
                 method: 'POST',
@@ -879,7 +1088,7 @@ if (supervisorPage) {
             try { data = await res.json(); } catch (_) {}
             if (res.status === 201) {
                 form.reset();
-                showMsg('تم استلام طلبك بنجاح. سيقوم القائد بمراجعته قريباً.', true);
+                showSuccessPopup(payload.email, committeeName, committeeHasLeader);
             } else if (res.status === 409) {
                 showMsg(data.error || 'لديك طلب قيد المراجعة بالفعل', false);
             } else if (res.status === 400) {
@@ -896,6 +1105,9 @@ if (supervisorPage) {
 (function () {
     const list = document.getElementById('membershipRequestsList');
     if (!list) return;
+    // Committee leaders review via /committee-leader/...; the club leader
+    // only handles legacy requests that have no committee.
+    const endpoint = list.dataset.endpoint || '/leader/membership-requests';
     const applyFilter = (filter) => {
         list.querySelectorAll('tr[data-membership-id]').forEach(row => {
             const show = (filter === 'all') || (row.dataset.status === filter);
@@ -910,16 +1122,57 @@ if (supervisorPage) {
         });
     });
 
+    const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Email delivery off or failed → let the leader share the link manually.
+    const showActivationLink = (url) => {
+        if (!url) return;
+        if (typeof modal !== 'function') { prompt('رابط تفعيل الحساب', url); return; }
+        modal(`<h3 style="color:#1b365d">رابط تفعيل الحساب</h3>
+<p style="margin-top:12px;line-height:1.8">لم يُرسل البريد للمتقدم (خدمة الإيميل غير مفعّلة أو فشل الإرسال). انسخ الرابط وأرسله له بنفسك — يُستخدم مرة واحدة فقط.</p>
+<input readonly dir="ltr" data-activation-link value="${escHtml(url)}" style="width:100%;margin-top:10px;padding:8px 10px;border:1px solid #ccc;border-radius:8px">
+<div class="dashboard-actions" style="margin-top:12px">
+<button type="button" class="dashboard-action approve" data-copy-activation-link>نسخ الرابط</button>
+<button type="button" class="dashboard-action" data-close>إغلاق</button>
+</div>`);
+    };
+
+    const statusHtml = (data) => {
+        if (data.status === 'approved') {
+            return '<span class="dashboard-status status-approved">معتمد</span><br>' + (data.activated
+                ? '<small style="color:#27ae60">الحساب مفعّل</small>'
+                : '<small style="color:#b9770e">بانتظار تفعيل الحساب</small>');
+        }
+        if (data.status === 'rejected') return '<span class="dashboard-status status-rejected">مرفوض</span>';
+        return '<span class="dashboard-status status-pending">قيد المراجعة</span>';
+    };
+
+    const actionsHtml = (reqId, data, reasonTpl) => {
+        const buttons = [];
+        if (data.status === 'approved' && !data.activated) {
+            buttons.push(`<button type="button" class="dashboard-action" data-resend-activation="${reqId}">إعادة إرسال رابط التفعيل</button>`);
+        }
+        if (reasonTpl) {
+            buttons.push(`<button type="button" class="dashboard-action" data-view-reason="${reqId}">عرض السبب</button>`);
+        }
+        if (!buttons.length) return '—';
+        return `<div class="dashboard-actions">${buttons.join('')}</div>${reasonTpl ? reasonTpl.outerHTML : ''}`;
+    };
+
+    const CONFIRM_MSG = {
+        'approve': 'اعتماد طلب العضوية؟ سيصل للمتقدم بريد فيه رابط لتعيين كلمة المرور وتفعيل حسابه.',
+        'reject': 'رفض طلب العضوية؟',
+        'resend-activation': 'إرسال رابط تفعيل جديد؟ الرابط السابق سيتوقف عن العمل.',
+    };
+
     const callRoute = async (reqId, action, button) => {
         const row = button.closest('tr[data-membership-id]');
         if (!row) return;
-        const confirmMsg = action === 'approve'
-            ? 'اعتماد طلب العضوية؟ لن يُنشأ حساب تلقائياً — سيُطلب من المتقدم التسجيل بنفسه عبر /signup باستخدام رمز الدعوة.'
-            : 'رفض طلب العضوية؟';
-        if (!confirm(confirmMsg)) return;
+        if (!confirm(CONFIRM_MSG[action])) return;
         row.querySelectorAll('button').forEach(b => { b.disabled = true; });
         try {
-            const res = await fetch(`/leader/membership-requests/${reqId}/${action}`, {method:'POST'});
+            const res = await fetch(`${endpoint}/${reqId}/${action}`, {method:'POST'});
             let data = {};
             try { data = await res.json(); } catch (_) {}
             if (!res.ok) {
@@ -929,25 +1182,29 @@ if (supervisorPage) {
             }
             row.dataset.status = data.status;
             const statusCell = row.querySelector('[data-membership-status]');
-            if (statusCell) {
-                statusCell.innerHTML = data.status === 'approved'
-                    ? '<span class="dashboard-status status-approved">معتمد</span>'
-                    : data.status === 'rejected'
-                    ? '<span class="dashboard-status status-rejected">مرفوض</span>'
-                    : '<span class="dashboard-status status-pending">قيد المراجعة</span>';
-            }
+            if (statusCell) statusCell.innerHTML = statusHtml(data);
             const actionsCell = row.querySelector('[data-membership-actions]');
-            const reasonTpl = actionsCell ? actionsCell.querySelector(`template[data-reason-for="${reqId}"]`) : null;
             if (actionsCell) {
-                actionsCell.innerHTML = reasonTpl
-                    ? `<button type="button" class="dashboard-action" data-view-reason="${reqId}">عرض السبب</button>${reasonTpl.outerHTML}`
-                    : '—';
+                const reasonTpl = actionsCell.querySelector(`template[data-reason-for="${reqId}"]`);
+                actionsCell.innerHTML = actionsHtml(reqId, data, reasonTpl);
             }
-            if (typeof toast === 'function') {
-                toast(action === 'approve'
-                    ? 'تم اعتماد الطلب — يرجى إبلاغ المتقدم للتسجيل عبر صفحة إنشاء الحساب'
-                    : 'تم رفض الطلب');
+            let msg;
+            if (action === 'reject') {
+                msg = 'تم رفض الطلب' + (data.email_sent
+                    ? ' · أُرسل إشعار للمتقدم'
+                    : ' · لم يُرسل إيميل (الخدمة غير مفعّلة)');
+            } else if (data.activated) {
+                // An account with this email already existed — it was promoted to member.
+                msg = 'يوجد حساب بهذا البريد · تمت ترقيته إلى عضو';
+            } else if (data.email_sent) {
+                msg = action === 'approve'
+                    ? 'تم اعتماد الطلب · أُرسل رابط التفعيل لبريد المتقدم'
+                    : 'أُرسل رابط تفعيل جديد لبريد المتقدم';
+            } else {
+                msg = (action === 'approve' ? 'تم اعتماد الطلب' : 'تم إنشاء رابط جديد') + ' · لم يُرسل البريد';
+                showActivationLink(data.activation_url);
             }
+            if (typeof toast === 'function') toast(msg);
         } catch (_) {
             if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
             row.querySelectorAll('button').forEach(b => { b.disabled = false; });
@@ -959,6 +1216,21 @@ if (supervisorPage) {
         if (ab) { e.preventDefault(); callRoute(ab.dataset.approveMembership, 'approve', ab); return; }
         const rb = e.target.closest('[data-reject-membership]');
         if (rb) { e.preventDefault(); callRoute(rb.dataset.rejectMembership, 'reject', rb); return; }
+        const sb = e.target.closest('[data-resend-activation]');
+        if (sb) { e.preventDefault(); callRoute(sb.dataset.resendActivation, 'resend-activation', sb); return; }
+        const cb = e.target.closest('[data-copy-activation-link]');
+        if (cb) {
+            const input = document.querySelector('[data-activation-link]');
+            if (!input) return;
+            const copied = () => { if (typeof toast === 'function') toast('تم نسخ الرابط'); };
+            const fallback = () => { input.select(); document.execCommand('copy'); copied(); };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(input.value).then(copied, fallback);
+            } else {
+                fallback();
+            }
+            return;
+        }
         const vb = e.target.closest('[data-view-reason]');
         if (vb) {
             e.preventDefault();
@@ -1179,44 +1451,6 @@ if (supervisorPage) {
             observer.observe(modalEl, { attributes: true, attributeFilter: ['class'] });
         } catch (_) {
             if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
-        }
-    });
-})();
-
-
-/* =========================================
-   PHASE 4 — COMMITTEE ASSIGNMENT UI
-   ========================================= */
-(function () {
-    document.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-save-committee]');
-        if (!btn) return;
-        e.preventDefault();
-        const userId = btn.dataset.saveCommittee;
-        const row = btn.closest('tr[data-committee-user-id]');
-        if (!row) return;
-        const input = row.querySelector(`[data-committee-input="${userId}"]`);
-        if (!input) return;
-        const value = input.value.trim();
-        btn.disabled = true;
-        try {
-            const fd = new FormData();
-            fd.append('committee', value);
-            const res = await fetch(`/leader/members/${userId}/committee`, {method:'POST', body: fd});
-            let data = {};
-            try { data = await res.json(); } catch (_) {}
-            if (!res.ok) {
-                if (typeof toast === 'function') toast(data.error || ('فشل الحفظ ('+res.status+')'));
-                btn.disabled = false;
-                return;
-            }
-            const cur = row.querySelector('[data-current-committee]');
-            if (cur) cur.textContent = data.committee || '—';
-            if (typeof toast === 'function') toast(value ? 'تم حفظ اللجنة' : 'تمت إزالة اللجنة');
-        } catch (_) {
-            if (typeof toast === 'function') toast('تعذر الاتصال بالخادم');
-        } finally {
-            btn.disabled = false;
         }
     });
 })();

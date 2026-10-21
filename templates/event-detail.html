@@ -95,6 +95,19 @@
                 {% endif %}
             </p>
 
+            {% if event.location_name or event.location_url %}
+            <p class="ed-sub ed-location">
+                <b>المكان:</b>
+                {% if event.location_name %}{{ event.location_name }}{% endif %}
+                {% if event.location_url %}
+                    {% if event.location_name %} — {% endif %}
+                    <a href="{{ event.location_url }}" target="_blank" rel="noopener noreferrer">
+                        عرض على الخريطة ↗
+                    </a>
+                {% endif %}
+            </p>
+            {% endif %}
+
             {% if tags %}
             <div class="ed-tags">
                 {% for t in tags %}<span class="ed-tag">{{ t }}</span>{% endfor %}

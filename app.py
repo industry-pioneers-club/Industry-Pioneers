@@ -1,7 +1,12 @@
-import hmac
+import hashlib
+import json
 import logging
 import os
-from datetime import datetime
+import re
+import secrets
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
 from functools import wraps
 
 try:
@@ -9,7 +14,7 @@ try:
 except ImportError:  # Non-Unix interpreters have no file locks.
     fcntl = None
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -19,6 +24,7 @@ from flask_login import (
     logout_user,
 )
 from flask_sqlalchemy import SQLAlchemy
+from markupsafe import escape
 from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -134,27 +140,7 @@ app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # 5 MB
 db = SQLAlchemy(app)
 
 
-# Article-image upload constants. Files are stored under
-# static/uploads/articles/, and the DB keeps a path RELATIVE to static/
-# so url_for('static', filename=...) resolves cleanly.
-_UPLOAD_ARTICLES_REL = "uploads/articles"
 _ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
-
-
-def _article_upload_dir():
-    """Absolute path to the article-image upload folder; created on demand.
-    Falls back to the writable dir (/tmp on serverless) if static/ is
-    read-only, so an article upload never crashes the whole request.
-    Caveat: files written to /tmp on Vercel disappear between invocations;
-    for persistent image uploads use a real object store (S3, R2, etc.)."""
-    full = os.path.join(app.static_folder, _UPLOAD_ARTICLES_REL)
-    try:
-        os.makedirs(full, exist_ok=True)
-        return full
-    except OSError:
-        fallback = os.path.join(_writable_dir(), _UPLOAD_ARTICLES_REL)
-        os.makedirs(fallback, exist_ok=True)
-        return fallback
 
 
 def _is_allowed_image(filename):
@@ -162,6 +148,55 @@ def _is_allowed_image(filename):
         return False
     ext = filename.rsplit(".", 1)[-1].lower()
     return ext in _ALLOWED_IMAGE_EXTENSIONS
+
+
+_IMAGE_MIME_BY_EXT = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+def _save_event_image_upload(file_storage):
+    """Persist an uploaded event cover into the EventImage table and
+    return the virtual path ('event-image/<id>') to store on the Event
+    row. Returns (path, None) on success or (None, error_message)
+    on validation failure. Flask's MAX_CONTENT_LENGTH (5MB) already
+    caps the request body, so no extra size check is needed here."""
+    if file_storage is None or not file_storage.filename:
+        return None, None
+    if not _is_allowed_image(file_storage.filename):
+        return None, "نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP."
+    ext = file_storage.filename.rsplit(".", 1)[-1].lower()
+    mime = _IMAGE_MIME_BY_EXT.get(ext, "application/octet-stream")
+    blob = file_storage.read()
+    if not blob:
+        return None, "الملف المرفوع فارغ."
+    img = EventImage(mime=mime, data=blob)
+    db.session.add(img)
+    db.session.flush()   # populate img.id without committing yet
+    return f"event-image/{img.id}", None
+
+
+def _save_article_image_upload(file_storage):
+    """Same contract as _save_event_image_upload but writes to
+    ArticleImage. Returns (virtual_path, None) on success,
+    (None, None) when no file was supplied, (None, error) on
+    validation failure."""
+    if file_storage is None or not file_storage.filename:
+        return None, None
+    if not _is_allowed_image(file_storage.filename):
+        return None, "نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP."
+    ext = file_storage.filename.rsplit(".", 1)[-1].lower()
+    mime = _IMAGE_MIME_BY_EXT.get(ext, "application/octet-stream")
+    blob = file_storage.read()
+    if not blob:
+        return None, "الملف المرفوع فارغ."
+    img = ArticleImage(mime=mime, data=blob)
+    db.session.add(img)
+    db.session.flush()
+    return f"article-image/{img.id}", None
 
 
 def _safe_static_rel(path):
@@ -173,8 +208,26 @@ def _safe_static_rel(path):
     return rel
 
 
+_EVENT_IMAGE_PREFIX = "event-image/"
+_ARTICLE_IMAGE_PREFIX = "article-image/"
+
+
 @app.template_filter("static_image")
 def static_image(path):
+    # Virtual paths for uploaded images stored in the DB. The actual bytes
+    # are served by serve_event_image / serve_article_image. We don't
+    # verify existence here to keep this filter cheap on list pages — a
+    # broken reference just renders a missing image, same as the legacy
+    # static-file path.
+    if isinstance(path, str):
+        if path.startswith(_EVENT_IMAGE_PREFIX):
+            tail = path[len(_EVENT_IMAGE_PREFIX):]
+            if tail.isdigit():
+                return url_for("serve_event_image", image_id=int(tail))
+        if path.startswith(_ARTICLE_IMAGE_PREFIX):
+            tail = path[len(_ARTICLE_IMAGE_PREFIX):]
+            if tail.isdigit():
+                return url_for("serve_article_image", image_id=int(tail))
     rel = _safe_static_rel(path)
     if rel is None or not os.path.isfile(os.path.join(app.static_folder, rel)):
         return None
@@ -202,7 +255,13 @@ def _inject_shared_chrome():
         identity = ClubIdentity.query.first()
     except Exception:   # noqa: BLE001 — context processors must never raise
         identity = None
-    return {"club_identity": identity}
+    # Phase 10: event_categories is a plain Python list (no DB roundtrip);
+    # templates / inline scripts use it to render the "نوع الفعالية" select
+    # and the matching chip filter without hard-coding the vocabulary.
+    return {
+        "club_identity": identity,
+        "event_categories": EVENT_CATEGORIES,
+    }
 
 
 class Event(db.Model):
@@ -219,6 +278,46 @@ class Event(db.Model):
     # Phase 6: free-text comma-separated tags used to match user interests.
     # Stored lowercase; empty string on legacy rows is treated as "no tags".
     tags = db.Column(db.String(300), nullable=True)
+    # Phase 10: structured "نوع الفعالية" — one of EVENT_CATEGORIES. Nullable
+    # for back-compat with pre-existing event rows that predate this column.
+    category = db.Column(db.String(40), nullable=True)
+    # Optional venue name + maps URL for the event details page.
+    location_name = db.Column(db.String(200), nullable=True)
+    location_url = db.Column(db.String(500), nullable=True)
+
+
+# Phase 10: fixed vocabulary for the "نوع الفعالية" dropdown. The exact
+# strings here MUST match the labels of the filter chips in events.html
+# so the chip filter can compare against Event.category directly.
+EVENT_CATEGORIES = ["ورش", "زيارات", "ملتقيات", "مسابقات"]
+
+
+class EventImage(db.Model):
+    """Binary storage for event cover images uploaded via the leader form.
+    Kept in a separate table so list queries over Event don't pay the
+    blob cost. One row per uploaded image; Event.image_path references
+    it via the virtual path 'event-image/<id>' which the static_image
+    filter resolves to /events/<id>/image."""
+    id = db.Column(db.Integer, primary_key=True)
+    mime = db.Column(db.String(60), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+
+class ArticleImage(db.Model):
+    """Binary storage for article cover images uploaded via the member
+    upload form. Vercel's filesystem is read-only outside /tmp (which is
+    ephemeral), so files written there vanish between invocations and
+    the UI renders the empty placeholder. Storing bytes in the DB keeps
+    uploaded images available across invocations.
+
+    Article.image_path references it via the virtual path
+    'article-image/<id>', resolved by the static_image filter to
+    /articles/<id>/image."""
+    id = db.Column(db.Integer, primary_key=True)
+    mime = db.Column(db.String(60), nullable=False)
+    data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
 
 class Article(db.Model):
@@ -372,19 +471,37 @@ class ActivityLog(db.Model):
 
 class MembershipRequest(db.Model):
     """Phase 4: public membership applications from /visitor.
-    Leader-only review. Approval does NOT auto-create a user account."""
+    The applicant picks a committee and that committee's leader reviews
+    the request. This is the ONLY way to get an account: approval emails
+    the applicant a single-use link to /activate/<token>, where they set a
+    password and the member account is created inside that committee."""
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     student_id = db.Column(db.String(50), nullable=False)
     major = db.Column(db.String(120), nullable=False)
+    # Required for new applications (the activation link is sent here).
+    # Nullable only for legacy rows submitted when email was optional.
     email = db.Column(db.String(120), nullable=True)
     reason = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default="pending")
     submitted_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     reviewed_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
+    # Account activation. Only the SHA-256 of the emailed token is stored;
+    # it is cleared once used. Re-sending rotates it (old link dies).
+    activation_token_hash = db.Column(db.String(64), nullable=True)
+    activation_expires_at = db.Column(db.DateTime, nullable=True)
+    # Set when the applicant's account exists (created via the activation
+    # page, or an existing account linked on approval).
+    activated_at = db.Column(db.DateTime, nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    # Committee the applicant chose; its leader reviews the request. NULL
+    # for requests from before committees were in the form, or whose
+    # committee was deleted — those fall back to the club leader.
+    committee_id = db.Column(db.Integer, db.ForeignKey("committee.id"), nullable=True)
 
     reviewer = db.relationship("User", lazy="joined", foreign_keys=[reviewed_by])
+    committee = db.relationship("Committee", foreign_keys=[committee_id])
 
 
 class EventRegistration(db.Model):
@@ -481,6 +598,15 @@ def role_required(*roles):
         return wrapped
 
     return decorator
+
+
+def _user_by_email(email):
+    """Case-insensitive account lookup. New accounts are stored lowercase,
+    but legacy rows may not be, so compare on lower() of both sides.
+    Defined up here because boot-time schema backfill uses it."""
+    if not isinstance(email, str) or not email.strip():
+        return None
+    return User.query.filter(db.func.lower(User.email) == email.strip().lower()).first()
 
 
 # Used only so a missing account is not obviously faster than a bad password.
@@ -607,9 +733,23 @@ def seed_if_empty():
         db.session.add(
             ClubIdentity(
                 name="نادي رواد الصناعة",
-                mission="Connect students with factory leaders and hands-on industry work.",
-                vision="A generation of engineers who build and lead local industry.",
-                description="Industry Pioneers Club hosts plant visits, talks, and projects with manufacturing partners.",
+                vision=(
+                    "أن يكون نادي رواد الصناعة بجامعة طيبة بيئة رائدة في تمكين "
+                    "طلابها وطالباتها، وتعزيز الابتكار في مجالات التصنيع والتقنيات "
+                    "الحديثة، بما يسهم في إعداد جيل جامعي متميز يقود الصناعة "
+                    "الوطنية ويدعم مستهدفات رؤية المملكة."
+                ),
+                mission=(
+                    "يسعى نادي رواد الصناعة إلى تمكين الطلاب والطالبات من اكتساب "
+                    "المهارات الصناعية والتقنية، وتعزيز الابتكار في مجالات التصنيع "
+                    "والتقنيات الحديثة، بما يدعم الصناعة الوطنية ويجهز الجيل "
+                    "القادر لقيادة المستقبل الصناعي في المملكة."
+                ),
+                description=(
+                    "نادي رواد الصناعة بجامعة طيبة — منصة طلابية تربط البيئة "
+                    "الأكاديمية بالقطاع الصناعي من خلال الزيارات الميدانية، "
+                    "والفعاليات، والمشاريع التطبيقية."
+                ),
             )
         )
         db.session.commit()
@@ -618,22 +758,36 @@ def seed_if_empty():
 
 
 def ensure_sample_rows():
-    titles = {row.title for row in Event.query}
-    for event in _sample_events():
-        if event.title not in titles:
+    """One-shot seed for a brand-new database. Each table is seeded only
+    while it is completely empty — once the leader has created, edited,
+    or deleted any row the auto-seed is permanently disabled for that
+    table, so a deleted sample row cannot be resurrected on cold start."""
+    changed = False
+    if Event.query.first() is None:
+        for event in _sample_events():
             db.session.add(event)
-    article_titles = {row.title for row in Article.query}
-    for article in _sample_articles():
-        if article.title not in article_titles:
+        changed = True
+    if Article.query.first() is None:
+        for article in _sample_articles():
             db.session.add(article)
-    sponsor_names = {row.name for row in Sponsor.query}
-    for sponsor in _sample_sponsors():
-        if sponsor.name not in sponsor_names:
+        changed = True
+    if Sponsor.query.first() is None:
+        for sponsor in _sample_sponsors():
             db.session.add(sponsor)
-    db.session.commit()
+        changed = True
+    if changed:
+        db.session.commit()
 
 
 def _canonical_image(path, fallbacks, row_id):
+    # Virtual DB-blob paths (event-image/<id>, article-image/<id>) are
+    # served by their own routes, not from static/. Leave them alone —
+    # otherwise repair_image_paths() would overwrite freshly uploaded
+    # images with a static fallback every cold start.
+    if isinstance(path, str) and (
+        path.startswith(_EVENT_IMAGE_PREFIX) or path.startswith(_ARTICLE_IMAGE_PREFIX)
+    ):
+        return path
     mapped = _IMAGE_FIXES.get(path, path)
     rel = _safe_static_rel(mapped)
     if rel:
@@ -664,36 +818,6 @@ def repair_image_paths():
             changed = True
     if changed:
         db.session.commit()
-
-
-def seed_demo_leader():
-    # Dev-only demo credential. Remove or change before production.
-    if db.session.query(User.id).filter_by(email="leader@club.com").first() is not None:
-        return
-    db.session.add(
-        User(
-            name="Admin",
-            email="leader@club.com",
-            password_hash=generate_password_hash("password123"),
-            role="leader",
-        )
-    )
-    db.session.commit()
-
-
-def seed_demo_supervisor():
-    # Dev-only demo credential. Remove or change before production.
-    if db.session.query(User.id).filter_by(email="supervisor@club.com").first() is not None:
-        return
-    db.session.add(
-        User(
-            name="Academic Supervisor",
-            email="supervisor@club.com",
-            password_hash=generate_password_hash("password1234"),
-            role="supervisor",
-        )
-    )
-    db.session.commit()
 
 
 def _ensure_sqlite_column(table, column, type_sql, default_sql="NULL"):
@@ -822,6 +946,12 @@ def _upgrade_schema():
         _ensure_sqlite_column("event", "capacity", "INTEGER", "NULL")
         _ensure_sqlite_column("event", "tags", "VARCHAR(300)", "NULL")
         _ensure_sqlite_column("user", "interests", "VARCHAR(500)", "NULL")
+        # Phase 10: event.category (one of EVENT_CATEGORIES). Nullable so
+        # pre-existing event rows (created before this column existed)
+        # survive the migration without a forced value.
+        _ensure_sqlite_column("event", "category", "VARCHAR(40)", "NULL")
+        _ensure_sqlite_column("event", "location_name", "VARCHAR(200)", "NULL")
+        _ensure_sqlite_column("event", "location_url", "VARCHAR(500)", "NULL")
         # EventRegistration gains waitlist flags. Existing rows get is_waitlisted=0
         # (confirmed) via the DEFAULT clause, so historical data is never
         # silently reclassified. waitlisted_at stays NULL for confirmed rows.
@@ -876,7 +1006,27 @@ def _upgrade_schema():
             "ON notification(event_id, recipient_user_id) "
             "WHERE kind = 'waitlist_promoted'"
         ))
+        # Partial unique indexes: one active (pending) MembershipRequest
+        # per student_id, and per lower(email) when email is provided.
+        # Historical approved/rejected rows are unaffected.
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_student "
+            "ON membership_request(student_id) WHERE status = 'pending'"
+        ))
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_email "
+            "ON membership_request(lower(email)) "
+            "WHERE status = 'pending' AND email IS NOT NULL"
+        ))
+        # Membership-based account activation (replaces direct signup).
+        _ensure_sqlite_column("membership_request", "activation_token_hash", "VARCHAR(64)", "NULL")
+        _ensure_sqlite_column("membership_request", "activation_expires_at", "DATETIME", "NULL")
+        _ensure_sqlite_column("membership_request", "activated_at", "DATETIME", "NULL")
+        _ensure_sqlite_column("membership_request", "user_id", "INTEGER", "NULL")
+        # Requests are routed to the leader of the chosen committee.
+        _ensure_sqlite_column("membership_request", "committee_id", "INTEGER", "NULL")
         db.session.commit()
+        _backfill_membership_accounts()
     elif dialect == "postgresql":
         db.session.execute(db.text(
             'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS committee VARCHAR(120)'
@@ -948,6 +1098,16 @@ def _upgrade_schema():
         db.session.execute(db.text(
             "ALTER TABLE event ADD COLUMN IF NOT EXISTS tags VARCHAR(300)"
         ))
+        # Phase 10: structured event category — ورش / زيارات / ملتقيات / مسابقات.
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS category VARCHAR(40)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS location_name VARCHAR(200)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE event ADD COLUMN IF NOT EXISTS location_url VARCHAR(500)"
+        ))
         db.session.execute(db.text(
             'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS interests VARCHAR(500)'
         ))
@@ -997,6 +1157,56 @@ def _upgrade_schema():
             "ON notification(event_id, recipient_user_id) "
             "WHERE kind = 'waitlist_promoted'"
         ))
+        # Membership request dedup: one active pending request per student
+        # and per normalized email. Existing rows are untouched.
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_student "
+            "ON membership_request(student_id) WHERE status = 'pending'"
+        ))
+        db.session.execute(db.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_membership_pending_email "
+            "ON membership_request(lower(email)) "
+            "WHERE status = 'pending' AND email IS NOT NULL"
+        ))
+        # Membership-based account activation (replaces direct signup).
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activation_token_hash VARCHAR(64)"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activation_expires_at TIMESTAMP"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS activated_at TIMESTAMP"
+        ))
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS user_id INTEGER"
+        ))
+        # Requests are routed to the leader of the chosen committee.
+        db.session.execute(db.text(
+            "ALTER TABLE membership_request ADD COLUMN IF NOT EXISTS committee_id INTEGER"
+        ))
+        db.session.commit()
+        _backfill_membership_accounts()
+
+
+def _backfill_membership_accounts():
+    """Approved requests from before activation links existed: if an
+    account with the same email is already there, mark the request as
+    activated so the leader dashboard doesn't offer to re-send a link.
+    Idempotent — only touches approved, not-yet-activated rows."""
+    rows = MembershipRequest.query.filter(
+        MembershipRequest.status == "approved",
+        MembershipRequest.activated_at.is_(None),
+        MembershipRequest.email.isnot(None),
+    ).all()
+    changed = False
+    for mr in rows:
+        user = _user_by_email(mr.email)
+        if user is not None:
+            mr.user_id = user.id
+            mr.activated_at = mr.reviewed_at or datetime.now()
+            changed = True
+    if changed:
         db.session.commit()
 
 
@@ -1021,8 +1231,6 @@ def initialize_database():
             db.create_all()
             _upgrade_schema()
             seed_if_empty()
-            seed_demo_leader()
-            seed_demo_supervisor()
         except (IntegrityError, OperationalError) as exc:
             db.session.rollback()
             logger.warning("initialize_database rolled back: %s", exc)
@@ -1080,11 +1288,17 @@ def published_articles():
 
 
 def club_context():
+    # Home page intentionally lists only previous sponsors ("الشركاء
+    # السابقون"); current partners live on /partners.
     return {
         "club_identity": ClubIdentity.query.first(),
         "events": public_events(),
         "articles": published_articles(),
-        "sponsors": Sponsor.query.order_by(Sponsor.id.asc()).all(),
+        "sponsors": (
+            Sponsor.query.filter_by(is_previous=True)
+            .order_by(Sponsor.id.asc())
+            .all()
+        ),
     }
 
 
@@ -1153,9 +1367,38 @@ def partners_page():
     )
 
 
+@app.get("/events/<int:image_id>/image")
+def serve_event_image(image_id):
+    """Serve the binary bytes for an uploaded event cover. Backed by the
+    EventImage table so uploads persist across Vercel invocations
+    (serverless filesystems are ephemeral; the DB is not)."""
+    img = db.session.get(EventImage, image_id)
+    if img is None:
+        abort(404)
+    resp = Response(img.data, mimetype=img.mime)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@app.get("/articles/<int:image_id>/image")
+def serve_article_image(image_id):
+    """Serve binary bytes for an uploaded article cover. Mirror of
+    serve_event_image — backed by the ArticleImage table so uploads
+    survive Vercel's ephemeral filesystem."""
+    img = db.session.get(ArticleImage, image_id)
+    if img is None:
+        abort(404)
+    resp = Response(img.data, mimetype=img.mime)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.get("/visitor")
 def visitor_portal():
-    return render_template("visitor.html", events=public_events())
+    # Every committee is offered, with or without a leader — requests to a
+    # leaderless committee are reviewed by the club leader until one is set.
+    committees = Committee.query.order_by(Committee.name.asc()).all()
+    return render_template("visitor.html", events=public_events(), committees=committees)
 
 
 @app.post("/visitor/membership-request")
@@ -1165,17 +1408,41 @@ def submit_membership_request():
     name = text_field(data, "name")[:120]
     student_id = text_field(data, "student_id")[:50]
     major = text_field(data, "major")[:120]
-    email = text_field(data, "email")[:120] or None
+    email = normalize_email(text_field(data, "email"))[:120]
     reason = text_field(data, "reason")[:2000] or None
-    if not name or not student_id or not major:
-        return jsonify({"error": "الاسم والرقم الجامعي والتخصص مطلوبة"}), 400
-    existing = (
-        MembershipRequest.query
-        .filter_by(student_id=student_id, status="pending")
-        .first()
-    )
-    if existing is not None:
-        return jsonify({"error": "لديك طلب قيد المراجعة بالفعل"}), 409
+    # Email is required: on approval the account-activation link goes there.
+    if not name or not student_id or not major or not email:
+        return jsonify({"error": "الاسم والرقم الجامعي والتخصص والبريد الإلكتروني مطلوبة"}), 400
+    if not is_valid_email_format(email):
+        return jsonify({"error": "صيغة البريد الإلكتروني غير صحيحة"}), 400
+    committee_id = _int_or_none(data.get("committee_id"))
+    committee = db.session.get(Committee, committee_id) if committee_id else None
+    if committee is None:
+        return jsonify({"error": "يرجى اختيار اللجنة التي تريد الانضمام إليها"}), 400
+    existing_user = _user_by_email(email)
+    if existing_user is not None and existing_user.role != "visitor":
+        return jsonify({
+            "error": "هذا البريد مسجّل بعضوية في النادي بالفعل. يمكنك تسجيل الدخول مباشرة."
+        }), 409
+    awaiting_activation = MembershipRequest.query.filter(
+        MembershipRequest.status == "approved",
+        MembershipRequest.activated_at.is_(None),
+        db.func.lower(MembershipRequest.email) == email,
+    ).first()
+    if awaiting_activation is not None:
+        return jsonify({
+            "error": "طلبك مقبول مسبقاً. تحقق من بريدك الإلكتروني لتفعيل حسابك، أو تواصل مع إدارة النادي لإعادة إرسال الرابط."
+        }), 409
+    # Block duplicate active applications by student_id OR email.
+    duplicate = MembershipRequest.query.filter(
+        MembershipRequest.status == "pending",
+        db.or_(
+            MembershipRequest.student_id == student_id,
+            db.func.lower(MembershipRequest.email) == email,
+        ),
+    ).first()
+    if duplicate is not None:
+        return jsonify({"error": "يوجد طلب نشط بنفس البيانات قيد المراجعة بالفعل"}), 409
     mr = MembershipRequest(
         name=name,
         student_id=student_id,
@@ -1183,9 +1450,14 @@ def submit_membership_request():
         email=email,
         reason=reason,
         status="pending",
+        committee_id=committee.id,
     )
     db.session.add(mr)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "يوجد طلب نشط بنفس البيانات قيد المراجعة بالفعل"}), 409
     return jsonify({"id": mr.id, "status": mr.status}), 201
 
 
@@ -1397,6 +1669,79 @@ def _parse_iso_date(value):
         return None
 
 
+def _valid_http_url(v):
+    """True iff v is a non-empty string starting with http:// or https://.
+    Kept intentionally permissive so Google Maps, maps.app.goo.gl, and
+    any plain maps URL pass without extra parsing."""
+    return isinstance(v, str) and (v.startswith("http://") or v.startswith("https://"))
+
+
+# Pragmatic email format check: one '@', at least one '.' in the domain,
+# no whitespace. Kept deliberately permissive — we rely on delivery to
+# flag deeper problems. No university-domain assumption.
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def normalize_email(raw):
+    """Trim surrounding whitespace and lowercase so comparisons are
+    case-insensitive and resilient to accidental padding. Returns an
+    empty string for falsy / non-string input."""
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower()
+
+
+def is_valid_email_format(value):
+    return bool(_EMAIL_RE.match(value or ""))
+
+
+# --------- Email delivery (Resend) ---------
+# Config lives entirely in env vars so no secret ever lands in the repo:
+#   RESEND_API_KEY         — API key from https://resend.com (required to send)
+#   RESEND_FROM            — verified sender, e.g. "النادي <noreply@yourdomain.com>"
+# When RESEND_API_KEY is unset we log and skip — callers must not claim
+# success to users unless this returns True.
+_RESEND_URL = "https://api.resend.com/emails"
+
+
+def _email_enabled():
+    return bool(os.environ.get("RESEND_API_KEY") and os.environ.get("RESEND_FROM"))
+
+
+def send_email(to_address, subject, html_body, text_body=None):
+    """Send a transactional email via Resend. Returns True on success,
+    False if the provider is unconfigured or the request fails. Never
+    raises — callers decide how to surface failures."""
+    if not to_address or not _email_enabled():
+        return False
+    api_key = os.environ["RESEND_API_KEY"]
+    sender = os.environ["RESEND_FROM"]
+    payload = {
+        "from": sender,
+        "to": [to_address],
+        "subject": subject,
+        "html": html_body,
+    }
+    if text_body:
+        payload["text"] = text_body
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        _RESEND_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+        logger.warning("Resend send failed for %s: %s", to_address, exc)
+        return False
+
+
 def _int_or_none(v):
     try:
         return int(v) if v not in (None, "", "null") else None
@@ -1427,13 +1772,6 @@ def _task_dict(t):
     }
 
 
-def invite_grants_member(invite_code):
-    if not isinstance(invite_code, str):
-        return False
-    expected = os.environ.get("INVITE_CODE", "PIONEERS2026")
-    return hmac.compare_digest(invite_code, expected)
-
-
 def public_user(user):
     return {"id": user.id, "email": user.email, "role": user.role}
 
@@ -1459,57 +1797,19 @@ def prefers_json():
     return json_quality > html_quality and json_quality > 0
 
 
-# JSON and form login/register POSTs have no CSRF protection yet.
-# A later iteration should add Flask-WTF/CSRF or token auth.
-@app.get("/register")
-def register_form():
-    return jsonify(
-        {
-            "fields": {
-                "name": "required",
-                "email": "required",
-                "password": "required",
-                "invite_code": "optional",
-            }
-        }
-    )
-
-
-@app.post("/register")
-def register():
-    data = submitted()
-    name = text_field(data, "name")
-    email = text_field(data, "email")
-    password = data.get("password")
-    if not name or not email or not isinstance(password, str) or password == "":
-        return jsonify({"error": "name, email, and password are required"}), 400
-    if User.query.filter_by(email=email).first() is not None:
-        return jsonify({"error": "Email already registered"}), 409
-    # Role comes from the invite code only. Ignore any client-supplied role.
-    role = "member" if invite_grants_member(data.get("invite_code")) else "visitor"
-    user = User(
-        name=name,
-        email=email,
-        password_hash=generate_password_hash(password),
-        role=role,
-    )
-    db.session.add(user)
-    try:
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({"error": "Email already registered"}), 409
-    return jsonify(public_user(user)), 201
-
-
+# There is no self-service signup: accounts are created only through an
+# approved membership request (see /activate/<token>). /signup is kept as
+# a redirect so old links land on the membership application form.
 @app.get("/signup")
 def signup_form():
-    return render_template("signup.html")
+    return redirect(url_for("visitor_portal") + "#membership")
 
 
+# JSON and form login POSTs have no CSRF protection yet.
+# A later iteration should add Flask-WTF/CSRF or token auth.
 @app.get("/login")
 def login_form():
-    return render_template("login.html")
+    return render_template("login.html", activated=request.args.get("activated") == "1")
 
 
 @app.post("/login")
@@ -1517,7 +1817,7 @@ def login():
     data = submitted()
     email = text_field(data, "email")
     password = data.get("password")
-    user = User.query.filter_by(email=email).first() if email else None
+    user = _user_by_email(email)
     candidate = password if isinstance(password, str) else ""
     password_hash = user.password_hash if user is not None else _LOGIN_DUMMY_HASH
     valid = check_password_hash(password_hash, candidate)
@@ -1580,6 +1880,14 @@ def member_profile():
         .order_by(ActivityLog.recorded_at.desc())
         .all()
     )
+    led_committees = _committees_led_by(current_user)
+    pending_requests_count = (
+        MembershipRequest.query.filter(
+            MembershipRequest.committee_id.in_([c.id for c in led_committees]),
+            MembershipRequest.status == "pending",
+        ).count()
+        if led_committees else 0
+    )
     return render_template(
         "member-dashboard.html",
         points=pts,
@@ -1590,7 +1898,8 @@ def member_profile():
         interest_choices=INTEREST_CHOICES,
         # Phase 8: list of committees this user leads so the dashboard
         # can conditionally show the "أعضاء اللجنة" card.
-        led_committees=_committees_led_by(current_user),
+        led_committees=led_committees,
+        pending_requests_count=pending_requests_count,
     )
 
 
@@ -1792,34 +2101,17 @@ def upload_article():
                 form={"title": title, "category": category, "content": content},
             ), 400
 
-        # Optional image upload.
-        image_rel_path = None
-        file = request.files.get("image")
-        if file and file.filename:
-            if not _is_allowed_image(file.filename):
-                return render_template(
-                    "upload-article.html",
-                    categories=categories,
-                    error="نوع الملف غير مدعوم. المسموح: JPG, JPEG, PNG, WEBP.",
-                    form={"title": title, "category": category, "content": content},
-                ), 400
-            # Safe unique filename: timestamp + sanitized basename.
-            from werkzeug.utils import secure_filename
-            ext = file.filename.rsplit(".", 1)[-1].lower()
-            safe_base = secure_filename(file.filename.rsplit(".", 1)[0])[:40] or "article"
-            stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            fname = f"{stamp}-{current_user.id}-{safe_base}.{ext}"
-            full = os.path.join(_article_upload_dir(), fname)
-            try:
-                file.save(full)
-            except OSError:
-                return render_template(
-                    "upload-article.html",
-                    categories=categories,
-                    error="تعذر حفظ الصورة. حاول مرة أخرى.",
-                    form={"title": title, "category": category, "content": content},
-                ), 500
-            image_rel_path = f"{_UPLOAD_ARTICLES_REL}/{fname}"
+        # Optional image upload. Persist bytes in the DB so uploads survive
+        # Vercel's ephemeral filesystem; the previous /tmp fallback silently
+        # lost files between invocations.
+        image_rel_path, img_err = _save_article_image_upload(request.files.get("image"))
+        if img_err:
+            return render_template(
+                "upload-article.html",
+                categories=categories,
+                error=img_err,
+                form={"title": title, "category": category, "content": content},
+            ), 400
 
         article = Article(
             title=title,
@@ -2228,6 +2520,22 @@ def delete_task(task_id):
     return jsonify({"deleted": task_id})
 
 
+_SPONSOR_STATUS_VALUES = {"current", "previous"}
+
+
+def _parse_sponsor_status(data):
+    """Required 'حالة الراعي' field. Accepts 'current' or 'previous'
+    (also tolerates boolean-ish 'is_previous=1/0' for legacy clients).
+    Returns (is_previous_bool, error_message_or_None)."""
+    raw = text_field(data, "status").lower()
+    if raw in _SPONSOR_STATUS_VALUES:
+        return (raw == "previous"), None
+    legacy = data.get("is_previous")
+    if legacy is not None:
+        return (str(legacy).lower() in ("1", "true", "on", "yes", "previous")), None
+    return None, "حالة الراعي مطلوبة (حالي أو سابق)"
+
+
 @app.post("/leader/sponsors")
 @role_required("leader", "supervisor")
 def create_sponsor():
@@ -2237,12 +2545,15 @@ def create_sponsor():
     logo_input = text_field(data, "logo_path")
     if not name:
         return jsonify({"error": "name required"}), 400
+    is_previous, status_err = _parse_sponsor_status(data)
+    if status_err:
+        return jsonify({"error": status_err}), 400
     rel = _safe_static_rel(logo_input) if logo_input else None
     if logo_input and (rel is None or not _static_file_exists(rel)):
         return jsonify(
             {"error": "logo_path must point to an existing file under static/"}
         ), 400
-    sponsor = Sponsor(name=name, logo_path=rel, tier=tier)
+    sponsor = Sponsor(name=name, logo_path=rel, tier=tier, is_previous=is_previous)
     db.session.add(sponsor)
     db.session.commit()
     return jsonify({
@@ -2250,7 +2561,46 @@ def create_sponsor():
         "name": sponsor.name,
         "logo_path": sponsor.logo_path,
         "tier": sponsor.tier,
+        "is_previous": sponsor.is_previous,
     }), 201
+
+
+@app.post("/leader/sponsors/<int:sponsor_id>/edit")
+@role_required("leader", "supervisor")
+def edit_sponsor(sponsor_id):
+    sponsor = db.session.get(Sponsor, sponsor_id)
+    if sponsor is None:
+        abort(404)
+    data = submitted()
+    name = text_field(data, "name")[:200]
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    is_previous, status_err = _parse_sponsor_status(data)
+    if status_err:
+        return jsonify({"error": status_err}), 400
+    tier = (text_field(data, "tier") or "Partner")[:50]
+    if "logo_path" in data:
+        logo_input = text_field(data, "logo_path")
+        if logo_input == "":
+            sponsor.logo_path = None
+        else:
+            rel = _safe_static_rel(logo_input)
+            if rel is None or not _static_file_exists(rel):
+                return jsonify(
+                    {"error": "logo_path must point to an existing file under static/"}
+                ), 400
+            sponsor.logo_path = rel
+    sponsor.name = name
+    sponsor.tier = tier
+    sponsor.is_previous = is_previous
+    db.session.commit()
+    return jsonify({
+        "id": sponsor.id,
+        "name": sponsor.name,
+        "logo_path": sponsor.logo_path,
+        "tier": sponsor.tier,
+        "is_previous": sponsor.is_previous,
+    })
 
 
 @app.post("/leader/sponsors/<int:sponsor_id>/delete")
@@ -2264,39 +2614,299 @@ def delete_sponsor(sponsor_id):
     return jsonify({"deleted": sponsor_id})
 
 
-@app.post("/leader/membership-requests/<int:req_id>/approve")
-@role_required("leader")
-def approve_membership_request(req_id):
-    """Phase 4: leader-only membership approval. Does NOT auto-create a user."""
-    mr = db.session.get(MembershipRequest, req_id)
-    if mr is None:
-        abort(404)
-    if mr.status != "pending":
-        return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
-    mr.status = "approved"
-    mr.reviewed_by = current_user.id
-    mr.reviewed_at = datetime.now()
-    db.session.commit()
+# ---- Membership → account activation ----
+# Approval emails the applicant a single-use link to /activate/<token>.
+# Only the token's SHA-256 is stored; leaders can re-send (rotating the
+# token) if it expires or the email never arrived.
+ACTIVATION_LINK_DAYS = int(os.environ.get("ACTIVATION_LINK_DAYS", "7"))
+MIN_PASSWORD_LENGTH = 8
+_MEMBERSHIP_NEEDS_EMAIL = "لا يمكن اعتماد طلب بدون بريد إلكتروني، لأن رابط تفعيل الحساب يُرسل عليه."
+
+
+def _hash_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _public_url(endpoint, **values):
+    """Absolute URL for links inside emails. SITE_URL (e.g.
+    https://pioneers.example.com) wins so links never depend on the Host
+    header of the request that triggered the email."""
+    base = os.environ.get("SITE_URL", "").strip().rstrip("/")
+    if base:
+        return base + url_for(endpoint, **values)
+    return url_for(endpoint, _external=True, **values)
+
+
+def _email_html(name, paragraphs, button_label=None, button_url=None):
+    """RTL transactional email body. `name` comes from a public form and
+    is escaped here; `paragraphs` are trusted HTML written in this file."""
+    button = ""
+    if button_label and button_url:
+        url = escape(button_url)
+        button = (
+            '<p style="margin:28px 0;text-align:center">'
+            f'<a href="{url}" style="background:#1b365d;color:#ffffff;padding:12px 28px;'
+            'border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">'
+            f"{escape(button_label)}</a></p>"
+            '<p style="font-size:13px;color:#666">إذا لم يعمل الزر، انسخ الرابط التالي في المتصفح:<br>'
+            f'<a href="{url}" style="color:#1b365d;word-break:break-all">{url}</a></p>'
+        )
+    body = "".join(f"<p>{p}</p>" for p in paragraphs)
+    return (
+        '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;'
+        'line-height:1.8;color:#222;text-align:right">'
+        f"<p>مرحباً {escape(name)}،</p>{body}{button}<p>— إدارة النادي</p></div>"
+    )
+
+
+def _start_member_activation(mr):
+    """Give an approved applicant a way into their account. If an account
+    with this email already exists it is linked (a visitor is promoted to
+    member) and no link is needed; otherwise a fresh single-use token is
+    issued, replacing any earlier one. Returns the activation URL, or None
+    when an existing account was linked. Caller commits."""
+    existing = _user_by_email(mr.email)
+    if existing is not None:
+        if existing.role == "visitor":
+            existing.role = "member"
+        _join_requested_committee(existing, mr)
+        mr.user_id = existing.id
+        mr.activated_at = datetime.now()
+        mr.activation_token_hash = None
+        mr.activation_expires_at = None
+        return None
+    token = secrets.token_urlsafe(32)
+    mr.activation_token_hash = _hash_token(token)
+    mr.activation_expires_at = datetime.now() + timedelta(days=ACTIVATION_LINK_DAYS)
+    return _public_url("activate_account", token=token)
+
+
+def _join_requested_committee(user, mr):
+    """Place an accepted applicant in the committee they applied to,
+    unless they already belong to one (never move someone silently)."""
+    if mr.committee is None or user.committee_id is not None:
+        return
+    _assign_user_to_committee(user, mr.committee)
+
+
+def _send_membership_approval_email(mr, activation_url):
+    accepted = "يسعدنا إبلاغك بأنه <strong>تم قبول طلب العضوية</strong> في نادي رواد الصناعة"
+    if mr.committee is not None:
+        accepted += f" ضمن لجنة <strong>{escape(mr.committee.name)}</strong>"
+    accepted += "."
+    if activation_url:
+        html = _email_html(mr.name, [
+            accepted,
+            "لتفعيل حسابك اضغط على الزر أدناه واختر كلمة المرور الخاصة بك، "
+            "ثم سجّل دخولك للوصول إلى لوحة التحكم.",
+            f"صلاحية الرابط {ACTIVATION_LINK_DAYS} أيام، ويُستخدم مرة واحدة فقط.",
+        ], "تفعيل الحساب وتعيين كلمة المرور", activation_url)
+        text = (
+            f"مرحباً {mr.name}،\n\n"
+            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
+            "لتفعيل حسابك وتعيين كلمة المرور افتح الرابط التالي:\n"
+            f"{activation_url}\n\n"
+            f"صلاحية الرابط {ACTIVATION_LINK_DAYS} أيام، ويُستخدم مرة واحدة فقط.\n\n"
+            "— إدارة النادي"
+        )
+    else:
+        login_url = _public_url("login_form")
+        html = _email_html(mr.name, [
+            accepted,
+            "تمت ترقية حسابك المسجّل بهذا البريد إلى عضو. سجّل دخولك بكلمة مرورك الحالية.",
+        ], "تسجيل الدخول", login_url)
+        text = (
+            f"مرحباً {mr.name}،\n\n"
+            "تم قبول طلب العضوية في نادي رواد الصناعة.\n"
+            "تمت ترقية حسابك المسجّل بهذا البريد إلى عضو. سجّل دخولك بكلمة مرورك الحالية:\n"
+            f"{login_url}\n\n"
+            "— إدارة النادي"
+        )
+    return send_email(
+        mr.email,
+        subject="تم قبول طلب العضوية في نادي رواد الصناعة",
+        html_body=html,
+        text_body=text,
+    )
+
+
+def _membership_activation_json(mr, activation_url, email_sent):
     return jsonify({
         "id": mr.id,
         "status": mr.status,
-        "note": "لم يُنشأ حساب تلقائياً. يجب على المتقدم التسجيل عبر /signup باستخدام رمز الدعوة.",
+        "activated": mr.activated_at is not None,
+        "user_id": mr.user_id,
+        # Returned to the leader so the link can be shared manually when
+        # email delivery is not configured or fails.
+        "activation_url": activation_url,
+        "activation_expires_at": (
+            mr.activation_expires_at.isoformat() if mr.activation_expires_at else None
+        ),
+        "email_sent": email_sent,
     })
 
 
-@app.post("/leader/membership-requests/<int:req_id>/reject")
-@role_required("leader")
-def reject_membership_request(req_id):
-    mr = db.session.get(MembershipRequest, req_id)
+def _approve_membership(mr):
+    """Emails the applicant a link to set their password; the member
+    account is created (inside the chosen committee) when they use it."""
+    if mr.status != "pending":
+        return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
+    if not mr.email:
+        return jsonify({"error": _MEMBERSHIP_NEEDS_EMAIL}), 400
+    mr.status = "approved"
+    mr.reviewed_by = current_user.id
+    mr.reviewed_at = datetime.now()
+    activation_url = _start_member_activation(mr)
+    db.session.commit()
+    email_sent = _send_membership_approval_email(mr, activation_url)
+    return _membership_activation_json(mr, activation_url, email_sent)
+
+
+def _resend_membership_activation(mr):
+    """Issue a fresh activation link (the previous one stops working) and
+    email it again — for expired links or emails that never arrived."""
+    if mr.status != "approved":
+        return jsonify({"error": "الطلب غير معتمد"}), 409
+    if mr.activated_at is not None:
+        return jsonify({"error": "تم تفعيل حساب هذا العضو مسبقاً"}), 409
+    if not mr.email:
+        return jsonify({"error": _MEMBERSHIP_NEEDS_EMAIL}), 400
+    activation_url = _start_member_activation(mr)
+    db.session.commit()
+    email_sent = _send_membership_approval_email(mr, activation_url)
+    return _membership_activation_json(mr, activation_url, email_sent)
+
+
+def _activation_request_for(token):
+    """Return (membership_request, None) for a usable token, or
+    (None, error_message) when it is unknown, used, or expired."""
+    mr = None
+    if isinstance(token, str) and 0 < len(token) <= 128:
+        mr = MembershipRequest.query.filter_by(
+            activation_token_hash=_hash_token(token)
+        ).first()
+    if mr is None or mr.status != "approved" or mr.activated_at is not None:
+        return None, "رابط التفعيل غير صالح أو تم استخدامه مسبقاً."
+    if mr.activation_expires_at is None or mr.activation_expires_at < datetime.now():
+        return None, "انتهت صلاحية رابط التفعيل. تواصل مع إدارة النادي لإرسال رابط جديد."
+    return mr, None
+
+
+@app.route("/activate/<token>", methods=["GET", "POST"])
+def activate_account(token):
+    """Landing page of the approval email: the applicant sets a password
+    and their member account is created. Single use — the token is
+    cleared on success, then they are sent to the login page."""
+    mr, link_error = _activation_request_for(token)
     if mr is None:
-        abort(404)
+        return render_template("activate-account.html", link_error=link_error), 400
+    if request.method == "GET":
+        return render_template("activate-account.html", mr=mr)
+
+    password = request.form.get("password", "")
+    confirm = request.form.get("password_confirm", "")
+    account_exists = "يوجد حساب مسجّل بهذا البريد بالفعل. سجّل دخولك، أو تواصل مع إدارة النادي."
+    error = None
+    if len(password) < MIN_PASSWORD_LENGTH:
+        error = f"كلمة المرور يجب أن تكون {MIN_PASSWORD_LENGTH} أحرف على الأقل."
+    elif password != confirm:
+        error = "كلمتا المرور غير متطابقتين."
+    elif _user_by_email(mr.email) is not None:
+        error = account_exists
+    if error:
+        return render_template("activate-account.html", mr=mr, error=error), 400
+
+    user = User(
+        name=mr.name,
+        email=normalize_email(mr.email),
+        password_hash=generate_password_hash(password),
+        role="member",
+    )
+    db.session.add(user)
+    try:
+        db.session.flush()
+    except IntegrityError:
+        # Same email registered concurrently (e.g. a double-submit).
+        db.session.rollback()
+        return render_template("activate-account.html", mr=mr, error=account_exists), 409
+    _join_requested_committee(user, mr)
+    mr.user_id = user.id
+    mr.activated_at = datetime.now()
+    mr.activation_token_hash = None
+    mr.activation_expires_at = None
+    db.session.commit()
+    return redirect(url_for("login_form", activated=1))
+
+
+def _reject_membership(mr):
     if mr.status != "pending":
         return jsonify({"error": "تم البت في هذا الطلب مسبقاً"}), 409
     mr.status = "rejected"
     mr.reviewed_by = current_user.id
     mr.reviewed_at = datetime.now()
     db.session.commit()
-    return jsonify({"id": mr.id, "status": mr.status})
+    email_sent = send_email(
+        mr.email,
+        subject="تحديث بشأن طلب العضوية في نادي رواد الصناعة",
+        html_body=_email_html(mr.name, [
+            "نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة."
+            " بعد المراجعة، <strong>لم يتم قبول طلب العضوية</strong> في هذه المرحلة.",
+            "يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.",
+        ]),
+        text_body=(
+            f"مرحباً {mr.name}،\n\n"
+            "نشكر اهتمامك بالانضمام إلى نادي رواد الصناعة.\n"
+            "بعد المراجعة لم يتم قبول طلب العضوية في هذه المرحلة.\n"
+            "يمكنك متابعة فعاليات النادي والتقدم مجدداً مستقبلاً.\n\n"
+            "— إدارة النادي"
+        ),
+    ) if mr.email else False
+    return jsonify({"id": mr.id, "status": mr.status, "email_sent": email_sent})
+
+
+_MEMBERSHIP_ACTIONS = {
+    "approve": _approve_membership,
+    "reject": _reject_membership,
+    "resend-activation": _resend_membership_activation,
+}
+
+
+def _club_leader_reviews(mr):
+    """True when a request has no committee leader to review it: no
+    committee (legacy, or committee deleted) or a committee with no
+    leader yet. Once a leader is assigned their pending requests move to
+    them — the reviewer is resolved live, never stored on the request."""
+    return mr.committee is None or mr.committee.leader_user_id is None
+
+
+def _review_membership(req_id, action, as_committee_leader):
+    """Run a review action if the current user may act on this request.
+    A request sent to a committee with a leader belongs to that leader
+    alone; the club leader covers requests nobody else can review, so
+    they never get stuck."""
+    handler = _MEMBERSHIP_ACTIONS.get(action)
+    mr = db.session.get(MembershipRequest, req_id)
+    if handler is None or mr is None:
+        abort(404)
+    if as_committee_leader:
+        if mr.committee is None or mr.committee.leader_user_id != current_user.id:
+            return jsonify({"error": "يراجع هذا الطلبَ قائدُ اللجنة التي اختارها المتقدم فقط"}), 403
+    elif not _club_leader_reviews(mr):
+        return jsonify({"error": "هذا الطلب يراجعه قائد اللجنة التي اختارها المتقدم"}), 403
+    return handler(mr)
+
+
+@app.post("/committee-leader/membership-requests/<int:req_id>/<action>")
+@login_required
+def committee_leader_review_membership(req_id, action):
+    return _review_membership(req_id, action, as_committee_leader=True)
+
+
+@app.post("/leader/membership-requests/<int:req_id>/<action>")
+@role_required("leader")
+def leader_review_membership(req_id, action):
+    """Club-leader fallback — only for requests with no committee leader."""
+    return _review_membership(req_id, action, as_committee_leader=False)
 
 
 def _award_points(user_id, action, points, **ref_ids):
@@ -2690,21 +3300,49 @@ def _eligible_member(user):
     return user is not None and user.role in ("member", "leader")
 
 
+def _set_committee_leader(c, user_id):
+    """Make `user_id` the leader of committee `c`; a falsy id clears the
+    leader. A leader must be a member of their committee, so someone from
+    outside joins it first — which, like any move, clears their leadership
+    of a previous committee. The previous leader stays a plain member.
+    Returns an error message, or None on success. Caller commits."""
+    if not user_id:
+        c.leader_user_id = None
+        return None
+    user = db.session.get(User, user_id)
+    if not _eligible_member(user):
+        return "القائد يجب أن يكون عضواً مسجلاً"
+    if user.committee_id != c.id:
+        _assign_user_to_committee(user, c)
+    c.leader_user_id = user.id
+    return None
+
+
 @app.get("/leader/committees")
 @role_required("leader", "supervisor")
 def list_committees():
     rows = Committee.query.order_by(Committee.name.asc()).all()
-    unassigned = (
+    eligible = (
         User.query
-        .filter(User.role.in_(("member", "leader")), User.committee_id.is_(None))
+        .filter(User.role.in_(("member", "leader")))
         .order_by(User.name.asc())
         .all()
     )
+    led = {c.leader_user_id: c for c in rows if c.leader_user_id}
     return jsonify({
         "committees": [_committee_dict(c) for c in rows],
         "unassigned_members": [
             {"id": u.id, "name": u.name, "email": u.email, "role": u.role}
-            for u in unassigned
+            for u in eligible if u.committee_id is None
+        ],
+        # Everyone who can be made a committee leader, with where they sit
+        # today so the picker can warn before moving them.
+        "leader_candidates": [
+            {"id": u.id, "name": u.name, "email": u.email,
+             "committee_id": u.committee_id, "committee": u.committee,
+             "leads_id": led[u.id].id if u.id in led else None,
+             "leads": led[u.id].name if u.id in led else None}
+            for u in eligible
         ],
     })
 
@@ -2736,13 +3374,10 @@ def create_committee():
     except IntegrityError:
         db.session.rollback()
         return jsonify({"error": "يوجد لجنة بنفس الاسم"}), 409
-    if leader_user_id is not None:
-        leader = db.session.get(User, leader_user_id)
-        if not _eligible_member(leader):
-            db.session.rollback()
-            return jsonify({"error": "القائد يجب أن يكون عضواً مسجلاً"}), 400
-        _assign_user_to_committee(leader, committee)
-        committee.leader_user_id = leader.id
+    error = _set_committee_leader(committee, leader_user_id)
+    if error:
+        db.session.rollback()
+        return jsonify({"error": error}), 400
     db.session.commit()
     return jsonify(_committee_dict(committee)), 201
 
@@ -2754,6 +3389,12 @@ def edit_committee(committee_id):
     if c is None:
         abort(404)
     data = submitted()
+    # Leader first: on error nothing has been changed yet. Present-but-empty
+    # (or 0) clears the leader; absent leaves it untouched.
+    if "leader_user_id" in data:
+        error = _set_committee_leader(c, _int_or_none(data.get("leader_user_id")))
+        if error:
+            return jsonify({"error": error}), 400
     if "name" in data:
         new_name = text_field(data, "name")[:120]
         if not new_name:
@@ -2785,6 +3426,11 @@ def delete_committee(committee_id):
     for u in affected:
         u.committee_id = None
         u.committee = None
+    # Requests sent to this committee lose their reviewer; detaching them
+    # hands them to the club leader instead of leaving them stuck.
+    MembershipRequest.query.filter_by(committee_id=c.id).update(
+        {"committee_id": None}, synchronize_session=False
+    )
     db.session.delete(c)
     db.session.commit()
     return jsonify({
@@ -2793,16 +3439,21 @@ def delete_committee(committee_id):
     })
 
 
-@app.post("/leader/committees/<int:committee_id>/add-member")
+@app.post("/leader/committees/<int:committee_id>/move-member")
 @role_required("leader", "supervisor")
-def committee_add_member(committee_id):
+def committee_move_member(committee_id):
+    """Move a member who already belongs to another committee into this
+    one. Club leaders cannot add people to committees directly — members
+    join through membership requests reviewed by committee leaders."""
     c = db.session.get(Committee, committee_id)
     if c is None:
         abort(404)
     user_id = _int_or_none(submitted().get("user_id"))
     user = db.session.get(User, user_id) if user_id else None
     if not _eligible_member(user):
-        return jsonify({"error": "يُسمح فقط بإضافة أعضاء مسجلين"}), 400
+        return jsonify({"error": "يُسمح فقط بنقل أعضاء مسجلين"}), 400
+    if user.committee_id is None:
+        return jsonify({"error": "العضو ليس في أي لجنة. ينضم الأعضاء للجان عبر طلبات العضوية."}), 400
     if user.committee_id == c.id:
         return jsonify({"error": "العضو موجود بالفعل في هذه اللجنة"}), 409
     _assign_user_to_committee(user, c)
@@ -2839,46 +3490,11 @@ def committee_set_leader(committee_id):
     c = db.session.get(Committee, committee_id)
     if c is None:
         abort(404)
-    user_id = _int_or_none(submitted().get("user_id"))
-    if not user_id:
-        c.leader_user_id = None
-        db.session.commit()
-        return jsonify({"committee_id": c.id, "leader_user_id": None})
-    user = db.session.get(User, user_id)
-    if not _eligible_member(user):
-        return jsonify({"error": "القائد يجب أن يكون عضواً مسجلاً"}), 400
-    # If they aren't already in this committee, pull them in first.
-    if user.committee_id != c.id:
-        _assign_user_to_committee(user, c)
-    c.leader_user_id = user.id
+    error = _set_committee_leader(c, _int_or_none(submitted().get("user_id")))
+    if error:
+        return jsonify({"error": error}), 400
     db.session.commit()
-    return jsonify({"committee_id": c.id, "leader_user_id": user.id})
-
-
-@app.post("/leader/members/<int:user_id>/committee")
-@role_required("leader", "supervisor")
-def set_member_committee(user_id):
-    """Legacy endpoint — preserved for backward compatibility with the
-    previous "committee as free-text string" workflow. Accepts a
-    committee NAME; if the committee doesn't exist, one is created on
-    the fly. Empty string / omitted → unassign."""
-    target = db.session.get(User, user_id)
-    if target is None:
-        abort(404)
-    if not _eligible_member(target):
-        return jsonify({"error": "لا يمكن تعيين لجنة إلا للأعضاء"}), 400
-    name = text_field(submitted(), "committee")[:120] or None
-    if name is None:
-        _assign_user_to_committee(target, None)
-    else:
-        committee = Committee.query.filter_by(name=name).first()
-        if committee is None:
-            committee = Committee(name=name)
-            db.session.add(committee)
-            db.session.flush()
-        _assign_user_to_committee(target, committee)
-    db.session.commit()
-    return jsonify({"id": target.id, "committee": target.committee})
+    return jsonify({"committee_id": c.id, "leader_user_id": c.leader_user_id})
 
 
 # ===========================================================
@@ -2887,12 +3503,14 @@ def set_member_committee(user_id):
 # A "committee leader" is any logged-in user whose user.id matches at
 # least one Committee.leader_user_id. They get a scoped dashboard page
 # where they can:
+#   - review membership requests sent to their committee
 #   - view their committee's members
 #   - add existing registered members (visitors are rejected)
 #   - manually award points with a task description
 #
-# Club leaders + supervisors retain full access and can manage any committee.
-# All checks are enforced server-side on every request.
+# Club leaders + supervisors can view any committee and award points,
+# but reviewing requests and adding members is the committee leader's
+# alone. All checks are enforced server-side on every request.
 # ===========================================================
 
 def _committees_led_by(user):
@@ -2918,16 +3536,16 @@ def _is_club_admin(user):
     )
 
 
-def _get_managed_committee(committee_id):
+def _get_managed_committee(committee_id, leader_only=False):
     """Return (committee, error_response_tuple). The caller must either
-    hold a leader_user_id pointer at this committee OR be a club admin.
-    Otherwise 403."""
+    hold a leader_user_id pointer at this committee OR be a club admin
+    (unless leader_only). Otherwise 403."""
     c = db.session.get(Committee, committee_id)
     if c is None:
         return None, (jsonify({"error": "اللجنة غير موجودة"}), 404)
-    if _is_club_admin(current_user):
-        return c, None
     if c.leader_user_id == current_user.id:
+        return c, None
+    if _is_club_admin(current_user) and not leader_only:
         return c, None
     return None, (jsonify({"error": "ليست لديك صلاحية على هذه اللجنة"}), 403)
 
@@ -2965,11 +3583,25 @@ def committee_leader_members_page():
             .order_by(User.name.asc())
             .all()
         )
+    # Reviewing requests + adding members belong to the committee's own
+    # leader; club admins browsing the page see neither.
+    is_committee_leader = committee is not None and committee.leader_user_id == current_user.id
+    membership_requests = []
+    if is_committee_leader:
+        membership_requests = (
+            MembershipRequest.query
+            .filter_by(committee_id=committee.id)
+            .order_by(MembershipRequest.submitted_at.desc())
+            .all()
+        )
     return render_template(
         "committee-members.html",
         committee=committee,
         committees_managed=committees_managed,
         members=members,
+        is_committee_leader=is_committee_leader,
+        membership_requests=membership_requests,
+        pending_requests_count=sum(1 for m in membership_requests if m.status == "pending"),
         committee_leader=(
             db.session.get(User, committee.leader_user_id)
             if committee and committee.leader_user_id else None
@@ -2982,7 +3614,7 @@ def committee_leader_members_page():
 def committee_leader_eligible_members(committee_id):
     """List users eligible to be ADDED to this committee: role in
     (member, leader), currently unassigned (committee_id IS NULL)."""
-    _, err = _get_managed_committee(committee_id)
+    _, err = _get_managed_committee(committee_id, leader_only=True)
     if err is not None:
         return err
     rows = (
@@ -3004,7 +3636,7 @@ def committee_leader_eligible_members(committee_id):
 @app.post("/committee-leader/<int:committee_id>/add-member")
 @login_required
 def committee_leader_add_member(committee_id):
-    c, err = _get_managed_committee(committee_id)
+    c, err = _get_managed_committee(committee_id, leader_only=True)
     if err is not None:
         return err
     user_id = _int_or_none(submitted().get("user_id"))
@@ -3430,6 +4062,14 @@ def create_event():
     title = text_field(data, "title")[:200]
     if not title:
         return jsonify({"error": "يرجى إدخال عنوان الفعالية"}), 400
+    # Phase 10: category is REQUIRED and must be one of EVENT_CATEGORIES.
+    category = text_field(data, "category")[:40]
+    if not category:
+        return jsonify({"error": "نوع الفعالية مطلوب"}), 400
+    if category not in EVENT_CATEGORIES:
+        return jsonify({
+            "error": "نوع الفعالية غير صالح. القيم المسموحة: " + "، ".join(EVENT_CATEGORIES)
+        }), 400
     date_raw = data.get("date")
     time_raw = data.get("time")
     event_dt = _parse_iso_datetime(date_raw, time_raw)
@@ -3437,13 +4077,22 @@ def create_event():
         return jsonify({"error": "التاريخ أو الوقت غير صالح (الصيغة YYYY-MM-DD و HH:MM)"}), 400
     raw_public = data.get("is_public")
     is_public = str(raw_public).lower() in ("1", "true", "on", "yes") if raw_public is not None else False
-    logo_input = text_field(data, "image_path")
+    # Image: prefer an uploaded file (field name "image"); fall back to the
+    # legacy "image_path" text field pointing at a file inside static/.
     image_path = None
-    if logo_input:
-        rel = _safe_static_rel(logo_input)
-        if rel is None or not _static_file_exists(rel):
-            return jsonify({"error": "image_path يجب أن يشير إلى ملف موجود داخل static/"}), 400
-        image_path = rel
+    uploaded = request.files.get("image")
+    virtual, up_err = _save_event_image_upload(uploaded)
+    if up_err:
+        return jsonify({"error": up_err}), 400
+    if virtual:
+        image_path = virtual
+    else:
+        logo_input = text_field(data, "image_path")
+        if logo_input:
+            rel = _safe_static_rel(logo_input)
+            if rel is None or not _static_file_exists(rel):
+                return jsonify({"error": "image_path يجب أن يشير إلى ملف موجود داخل static/"}), 400
+            image_path = rel
     # Phase 6: optional capacity / registration deadline / tags.
     capacity = _int_or_none(data.get("capacity"))
     if capacity is not None and capacity < 0:
@@ -3463,6 +4112,14 @@ def create_event():
                 "error": "موعد إغلاق التسجيل يجب أن يكون قبل أو عند موعد الفعالية"
             }), 400
     tags_value = _tags_to_storage(data.get("tags"))
+    # Optional venue fields.
+    location_name = text_field(data, "location_name")[:200] or None
+    location_url_raw = text_field(data, "location_url")[:500]
+    location_url = None
+    if location_url_raw:
+        if not _valid_http_url(location_url_raw):
+            return jsonify({"error": "رابط الموقع يجب أن يبدأ بـ http:// أو https://"}), 400
+        location_url = location_url_raw
 
     event = Event(
         title=title,
@@ -3472,6 +4129,9 @@ def create_event():
         registration_deadline=reg_deadline_dt,
         capacity=capacity,
         tags=tags_value,
+        category=category,
+        location_name=location_name,
+        location_url=location_url,
     )
     db.session.add(event)
     db.session.commit()
@@ -3491,6 +4151,9 @@ def create_event():
         ),
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
+        "category": event.category,
+        "location_name": event.location_name,
+        "location_url": event.location_url,
         "notified_members": notified,
     }), 201
 
@@ -3520,9 +4183,18 @@ def edit_event(event_id):
     is_public = (str(raw_public).lower() in ("1", "true", "on", "yes")
                  if raw_public is not None else event.is_public)
 
-    # Optional image path. Empty string clears the image; a non-empty
-    # value must point at an existing file inside static/.
-    if "image_path" in data:
+    # Image handling. Priority:
+    #   1) If a file was uploaded (multipart field "image"), replace.
+    #   2) Else if the client sent "image_path" (legacy static path):
+    #        empty string → clear; non-empty → must resolve inside static/.
+    #   3) Else leave the current image untouched.
+    uploaded = request.files.get("image")
+    virtual, up_err = _save_event_image_upload(uploaded)
+    if up_err:
+        return jsonify({"error": up_err}), 400
+    if virtual:
+        event.image_path = virtual
+    elif "image_path" in data:
         logo_input = text_field(data, "image_path")
         if logo_input == "":
             event.image_path = None
@@ -3556,6 +4228,23 @@ def edit_event(event_id):
             event.registration_deadline = reg_deadline_dt
     if "tags" in data:
         event.tags = _tags_to_storage(data.get("tags"))
+    # Phase 10: category — accept only values in EVENT_CATEGORIES. Empty
+    # string clears (back to NULL) for parity with the other optional fields.
+    if "category" in data:
+        new_category = text_field(data, "category")[:40]
+        if new_category and new_category not in EVENT_CATEGORIES:
+            return jsonify({
+                "error": "نوع الفعالية غير صالح. القيم المسموحة: " + "، ".join(EVENT_CATEGORIES)
+            }), 400
+        event.category = new_category or None
+    # Optional venue fields — empty string clears, non-empty replaces.
+    if "location_name" in data:
+        event.location_name = text_field(data, "location_name")[:200] or None
+    if "location_url" in data:
+        url_raw = text_field(data, "location_url")[:500]
+        if url_raw and not _valid_http_url(url_raw):
+            return jsonify({"error": "رابط الموقع يجب أن يبدأ بـ http:// أو https://"}), 400
+        event.location_url = url_raw or None
 
     was_public = event.is_public
     event.title = title
@@ -3603,6 +4292,9 @@ def edit_event(event_id):
         ),
         "capacity": event.capacity,
         "tags": _normalize_tag_list(event.tags),
+        "category": event.category,
+        "location_name": event.location_name,
+        "location_url": event.location_url,
         "promoted": promoted_total,
         "notified_members": notified,
         "was_public": was_public,
@@ -3882,6 +4574,43 @@ def supervisor_report_csv():
 @app.get("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
+
+
+@app.get("/leader/db-info")
+@role_required("leader", "supervisor")
+def db_info():
+    """Leader/supervisor-only read-only probe. Reports which backend
+    SQLAlchemy is actually talking to on this deploy, with the host
+    redacted enough that no secret is exposed. Also runs a trivial
+    SELECT to confirm the connection is live. No writes."""
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI", "") or ""
+    dialect = (uri.split("://", 1)[0] or "unknown").split("+", 1)[0]
+    host_hint = ""
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(uri)
+        hostname = parts.hostname or ""
+        if hostname:
+            # Keep enough to recognize the Neon project (ep-xxxx) but
+            # never show user/password or query string.
+            labels = hostname.split(".")
+            head = labels[0]
+            tld = ".".join(labels[-2:]) if len(labels) >= 2 else ""
+            host_hint = f"{head[:12]}***.{tld}" if head and tld else "***"
+    except Exception:   # noqa: BLE001 — never let a probe crash
+        host_hint = "***"
+    live = False
+    try:
+        db.session.execute(db.text("SELECT 1")).scalar()
+        live = True
+    except Exception as exc:   # noqa: BLE001
+        logger.warning("db-info SELECT 1 failed: %s", exc)
+    return jsonify({
+        "dialect": dialect,
+        "host_hint": host_hint,
+        "database_url_set": bool(os.environ.get("DATABASE_URL")),
+        "live": live,
+    })
 
 
 if __name__ == "__main__":

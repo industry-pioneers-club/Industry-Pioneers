@@ -25,29 +25,51 @@
         <span class="sub">شركاء النجاح الذين يدعمون رحلتنا</span>
     </section>
 
-    <!-- قسم الرعاة الحاليون -->
+    <style>
+        .partners-empty{
+            margin-top:26px;
+            display:grid;
+            place-items:center;
+            min-height:140px;
+            padding:28px 20px;
+            background:#fff;
+            border:1px dashed var(--bd);
+            border-radius:12px;
+            color:#777;
+            font-size:16px;
+        }
+    </style>
     <section class="sec">
         <div class="wrap">
-            <h2 class="st">الرعاة</h2>
+            <h2 class="st">الشركاء والرعاة</h2>
+            {% if current_sponsors %}
             <div class="logos">
 {% for sponsor in current_sponsors %}
-                <div class="lg">{% set src = sponsor.logo_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}<p>{{ sponsor.name }} — {{ sponsor.tier }}</p></div>
-{% else %}
-                <p class="empty">لا يوجد رعاة حالياً.</p>
+                <div class="lg">
+                    {% set src = sponsor.logo_path|static_image %}
+                    {% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}
+                    <p>{{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}</p>
+                </div>
 {% endfor %}
             </div>
+            {% else %}
+            <p class="partners-empty">لا يوجد رعاة حاليًا.</p>
+            {% endif %}
         </div>
     </section>
 
-    <!-- قسم الشركاء السابقون — مُستخرَجة من قاعدة البيانات (is_previous = true) -->
-    <section class="sec">
+    <section class="sec alt">
         <div class="wrap">
             <h2 class="st">الشركاء السابقون</h2>
             <div class="logos">
 {% for sponsor in previous_sponsors %}
-                <div class="lg">{% set src = sponsor.logo_path|static_image %}{% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}<p>{{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}</p></div>
+                <div class="lg">
+                    {% set src = sponsor.logo_path|static_image %}
+                    {% if src %}<img src="{{ src }}" alt="{{ sponsor.name }}">{% endif %}
+                    <p>{{ sponsor.name }}{% if sponsor.tier %} — {{ sponsor.tier }}{% endif %}</p>
+                </div>
 {% else %}
-                <p class="empty">لا يوجد شركاء سابقون.</p>
+                <p class="partners-empty">لا يوجد شركاء سابقون.</p>
 {% endfor %}
             </div>
         </div>

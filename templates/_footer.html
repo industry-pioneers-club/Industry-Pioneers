@@ -9,7 +9,7 @@
 
         <div class="home-footer-brand">
             <div class="logos">
-                <img src="{{ url_for('static', filename='Image/club-logo.png') }}" alt="نادي رواد الصناعة">
+                <img src="{{ url_for('static', filename='Image/logo.png') }}" alt="نادي رواد الصناعة">
                 <span class="logos-divider" aria-hidden="true"></span>
                 <img src="{{ url_for('static', filename='Image/taibah-logo.png') }}" alt="جامعة طيبة">
             </div>
@@ -38,7 +38,7 @@
                 <li><a href="{{ url_for('logout') }}">تسجيل الخروج</a></li>
                 {% else %}
                 <li><a href="{{ url_for('login_form') }}">تسجيل الدخول</a></li>
-                <li><a href="{{ url_for('visitor_portal') }}">طلب العضوية</a></li>
+                <li><a href="{{ url_for('visitor_portal') }}#membership">طلب العضوية</a></li>
                 {% endif %}
             </ul>
         </div>

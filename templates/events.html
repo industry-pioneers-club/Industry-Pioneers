@@ -56,11 +56,15 @@
          data-event-id="{{ event.id }}"
          data-event-start="{{ event.date.isoformat() if event.date else '' }}"
          data-reg-deadline="{{ deadline_iso }}"
-         data-event-capacity="{{ event.capacity if event.capacity is not none else '' }}">
+         data-event-capacity="{{ event.capacity if event.capacity is not none else '' }}"
+         data-category="{{ event.category or '' }}">
     <div class="ph {% if not src %}no-img{% endif %}">{% if src %}<img src="{{ src }}" alt="{{ event.title }}" loading="lazy">{% endif %}</div>
     <div class="eb">
         <h3>{{ event.title }}</h3>
-        <ul><li><b>التاريخ:</b> {{ event.date|shortdate }}</li></ul>
+        <ul>
+            <li><b>التاريخ:</b> {{ event.date|shortdate }}</li>
+            {% if event.category %}<li><b>النوع:</b> {{ event.category }}</li>{% endif %}
+        </ul>
         <div class="ev-meta">
             <span class="ev-chip cd" data-countdown="reg">...</span>
             <span class="ev-chip cap" data-capacity>...</span>
@@ -79,11 +83,15 @@
          data-event-id="{{ event.id }}"
          data-event-start="{{ event.date.isoformat() if event.date else '' }}"
          data-reg-deadline=""
-         data-event-capacity="">
+         data-event-capacity=""
+         data-category="{{ event.category or '' }}">
     <div class="ph {% if not src %}no-img{% endif %}">{% if src %}<img src="{{ src }}" alt="{{ event.title }}" loading="lazy">{% endif %}</div>
     <div class="eb">
         <h3>{{ event.title }}</h3>
-        <ul><li><b>التاريخ:</b> {{ event.date|shortdate }}</li></ul>
+        <ul>
+            <li><b>التاريخ:</b> {{ event.date|shortdate }}</li>
+            {% if event.category %}<li><b>النوع:</b> {{ event.category }}</li>{% endif %}
+        </ul>
         <div class="ev-meta" style="margin-top:auto"><span class="ev-chip cd closed">انتهت الفعالية</span></div>
     </div>
 </article>

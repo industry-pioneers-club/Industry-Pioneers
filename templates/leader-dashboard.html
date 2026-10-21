@@ -485,7 +485,8 @@
 <script id="leader-dashboard-data" type="application/json">
 {
     "events": [{% for e in events %}{"id": {{ e.id }}, "title": {{ e.title|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
-    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}]
+    "members": [{% for m in members %}{"id": {{ m.id }}, "name": {{ m.name|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}],
+    "event_categories": {{ event_categories|tojson }}
 }
 </script>
 
@@ -533,7 +534,10 @@
                             data-event-capacity="{{ ev.capacity if ev.capacity is not none else '' }}"
                             data-event-deadline-date="{{ ev.registration_deadline.strftime('%Y-%m-%d') if ev.registration_deadline else '' }}"
                             data-event-deadline-time="{{ ev.registration_deadline.strftime('%H:%M') if ev.registration_deadline else '' }}"
-                            data-event-tags="{{ ev.tags or '' }}">
+                            data-event-tags="{{ ev.tags or '' }}"
+                            data-event-category="{{ ev.category or '' }}"
+                            data-event-location-name="{{ ev.location_name or '' }}"
+                            data-event-location-url="{{ ev.location_url or '' }}">
                             <td>{{ ev.title }}</td>
                             <td data-event-date-cell>{{ ev.date.strftime('%Y-%m-%d') }}</td>
                             <td>{{ ev.date.strftime('%H:%M') }}</td>
@@ -560,7 +564,12 @@
                                     <span style="color:#888;font-size:12px">— لا توجد مهام</span>
                                 {% endif %}
                             </td>
-                            <td>{{ ev.image_path or '—' }}</td>
+                            <td>
+                                {% set thumb = ev.image_path|static_image %}
+                                {% if thumb %}
+                                    <img src="{{ thumb }}" alt="" style="max-width:72px;max-height:48px;border-radius:6px;border:1px solid #e5e7eb">
+                                {% else %}—{% endif %}
+                            </td>
                             <td>
                                 <div class="dashboard-actions">
                                     <button class="dashboard-action" data-edit-event="{{ ev.id }}">تعديل</button>
@@ -699,14 +708,16 @@
 
 
     <!-- طلبات الانضمام للنادي -->
+    {% from "_membership_requests.html" import membership_requests_table %}
     <div class="dashboard-section">
         <div class="dashboard-heading">
             <div>
                 <h2 class="st">طلبات الانضمام للنادي</h2>
                 <p class="dashboard-description">
-                    مراجعة طلبات العضوية الواردة من بوابة الزوار.
-                    <strong>الاعتماد لا يُنشئ حساباً تلقائياً — يجب على المتقدم التسجيل بنفسه عبر صفحة
-                    <a href="{{ url_for('signup_form') }}">إنشاء حساب</a> باستخدام رمز الدعوة.</strong>
+                    متابعة طلبات العضوية الواردة من بوابة الزوار.
+                    <strong>يراجع كل طلب قائدُ اللجنة التي اختارها المتقدم، وعند قبوله ينضم العضو لتلك اللجنة.
+                    تراجع من هنا فقط طلبات اللجان التي ليس لها قائد بعد والطلبات بدون لجنة؛
+                    وعند تعيين قائد للجنة تنتقل طلباتها المعلّقة إليه تلقائياً.</strong>
                 </p>
                 <p style="margin-top:8px;color:#555">
                     قيد المراجعة: <strong>{{ membership_counts.pending }}</strong>
@@ -717,73 +728,7 @@
         </div>
 
         <div class="dashboard-card">
-            <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <strong style="color:#1b365d">عرض:</strong>
-                <button type="button" class="dashboard-action membership-filter active" data-filter="all">الكل</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="pending">قيد المراجعة</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="approved">معتمد</button>
-                <button type="button" class="dashboard-action membership-filter" data-filter="rejected">مرفوض</button>
-            </div>
-            <div class="table-wrapper">
-                <table class="dashboard-table">
-                    <thead>
-                        <tr>
-                            <th>الاسم</th>
-                            <th>الرقم الجامعي</th>
-                            <th>التخصص</th>
-                            <th>البريد</th>
-                            <th>تاريخ التقديم</th>
-                            <th>الحالة</th>
-                            <th>المراجع</th>
-                            <th>الإجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody id="membershipRequestsList">
-                        {% for m in membership_requests %}
-                        <tr data-membership-id="{{ m.id }}" data-status="{{ m.status }}">
-                            <td>{{ m.name }}</td>
-                            <td>{{ m.student_id }}</td>
-                            <td>{{ m.major }}</td>
-                            <td>{{ m.email if m.email else '—' }}</td>
-                            <td>{{ m.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                            <td data-membership-status>
-                                {% if m.status == 'approved' %}
-                                <span class="dashboard-status status-approved">معتمد</span>
-                                {% elif m.status == 'rejected' %}
-                                <span class="dashboard-status status-rejected">مرفوض</span>
-                                {% else %}
-                                <span class="dashboard-status status-pending">قيد المراجعة</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if m.reviewer %}
-                                    {{ m.reviewer.name }}<br>
-                                    <small style="color:#888">{{ m.reviewed_at.strftime('%Y-%m-%d %H:%M') if m.reviewed_at else '' }}</small>
-                                {% else %}—{% endif %}
-                            </td>
-                            <td data-membership-actions>
-                                {% if m.status == 'pending' %}
-                                <div class="dashboard-actions">
-                                    <button class="dashboard-action approve" data-approve-membership="{{ m.id }}">✓ اعتماد</button>
-                                    <button class="dashboard-action reject" data-reject-membership="{{ m.id }}">✗ رفض</button>
-                                    {% if m.reason %}
-                                    <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
-                                    {% endif %}
-                                </div>
-                                {% elif m.reason %}
-                                <button type="button" class="dashboard-action" data-view-reason="{{ m.id }}">عرض السبب</button>
-                                {% else %}—{% endif %}
-                                {% if m.reason %}
-                                <template data-reason-for="{{ m.id }}">{{ m.reason }}</template>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="8" style="text-align:center;color:#888">لا توجد طلبات انضمام بعد.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            {{ membership_requests_table(membership_requests, "club") }}
         </div>
     </div>
 
@@ -821,6 +766,23 @@
         .cm-card-actions .btn-lite:hover{background:#f39c12;color:#fff}
         .cm-card-actions .btn-lite.danger{color:#c0392b;border-color:#c0392b}
         .cm-card-actions .btn-lite.danger:hover{background:#c0392b;color:#fff}
+        /* Searchable leader picker (create / edit committee modals) */
+        .cm-picker{display:flex;flex-direction:column;gap:6px}
+        .cm-picker-current{display:flex;justify-content:space-between;align-items:center;gap:8px;
+                           padding:8px 12px;border-radius:10px;background:#fff5e5;color:#9a5a00;
+                           font-size:13.5px;font-weight:700}
+        .cm-picker-current[hidden]{display:none}
+        .cm-picker-current small{display:block;color:#6a7f91;font-weight:500;font-size:12px}
+        .box .cm-picker-search{margin:0}
+        .cm-picker-list{max-height:180px;overflow-y:auto;border:1px solid #e6ecf2;border-radius:10px;background:#fcfdfe}
+        .cm-picker-item{display:block;width:100%;text-align:right;padding:8px 12px;border:0;
+                        border-bottom:1px solid #eef2f6;background:transparent;cursor:pointer;
+                        font:700 13.5px Tajawal,sans-serif;color:#1b365d}
+        .cm-picker-item:last-child{border-bottom:0}
+        .cm-picker-item:hover,.cm-picker-item:focus{background:#fff8ec;outline:0}
+        .cm-picker-item small{display:block;color:#6a7f91;font-weight:500;font-size:12px;margin-top:2px}
+        .cm-picker-item small.warn{color:#b9770e}
+        .cm-picker-empty{padding:12px;text-align:center;color:#9fb3c4;font-size:13px}
         .cm-empty{grid-column:1/-1;text-align:center;color:#9fb3c4;padding:28px 20px;
                   border:1px dashed #e6ecf2;border-radius:12px;background:#fcfdfe}
         .cm-unassigned{margin-top:18px;background:#f7f9fc;border:1px solid #e6ecf2;border-radius:10px;
@@ -838,7 +800,8 @@
             <div>
                 <h2 class="st">إدارة اللجان</h2>
                 <p class="dashboard-description">
-                    إنشاء اللجان وتعيين قائد وأعضاء لكل لجنة. تسجيل عضو جديد لا يضعه تلقائياً في أي لجنة.
+                    إنشاء اللجان وتعيين قادتها. تظهر كل اللجان في نموذج طلب العضوية، وينضم الأعضاء إليها
+                    عبر طلبات العضوية التي يراجعها قائد كل لجنة.
                 </p>
             </div>
             <div class="dashboard-heading-actions">
@@ -890,8 +853,8 @@
                 </ul>
 
                 <div class="cm-card-actions">
-                    <button type="button" class="btn-lite" data-add-member="{{ c.id }}">+ إضافة عضو</button>
-                    <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}">تعديل</button>
+                    <button type="button" class="btn-lite" data-edit-committee="{{ c.id }}" data-committee-name="{{ c.name }}" data-committee-desc="{{ c.description or '' }}"
+                            data-committee-leader-id="{{ c.leader_user_id or '' }}" data-committee-leader-name="{{ c.leader.name if c.leader else '' }}">تعديل</button>
                     <button type="button" class="btn-lite danger" data-delete-committee="{{ c.id }}" data-committee-name="{{ c.name }}">حذف اللجنة</button>
                 </div>
             </article>
@@ -904,7 +867,7 @@
         <div class="cm-unassigned">
             <div class="cm-unassigned-head">
                 <b>أعضاء بدون لجنة ({{ unassigned_members|length }})</b>
-                <span style="color:#6a7f91;font-size:12.5px">يمكن إضافتهم إلى أي لجنة من زر «+ إضافة عضو».</span>
+                <span style="color:#6a7f91;font-size:12.5px">يستطيع قائد اللجنة إضافتهم من صفحة لجنته.</span>
             </div>
             <div class="cm-unassigned-list">
                 {% for u in unassigned_members %}
@@ -997,12 +960,23 @@
 
         <div class="sponsor-dashboard-grid" id="sponsorList">
             {% for s in sponsors %}
-            <div class="sponsor-dashboard-card" data-sponsor-id="{{ s.id }}">
+            <div class="sponsor-dashboard-card"
+                 data-sponsor-id="{{ s.id }}"
+                 data-sponsor-name="{{ s.name }}"
+                 data-sponsor-tier="{{ s.tier or '' }}"
+                 data-sponsor-logo="{{ s.logo_path or '' }}"
+                 data-sponsor-status="{{ 'previous' if s.is_previous else 'current' }}">
                 <button class="sponsor-delete" data-delete-sponsor="{{ s.id }}" aria-label="حذف">×</button>
                 {% set src = s.logo_path|static_image %}
                 {% if src %}<img src="{{ src }}" alt="{{ s.name }}">{% endif %}
                 <h4>{{ s.name }}</h4>
                 {% if s.tier %}<small style="color:#888">{{ s.tier }}</small>{% endif %}
+                <span class="dashboard-status {{ 'status-pending' if s.is_previous else 'status-approved' }}"
+                      style="margin-top:6px">
+                    {{ 'سابق' if s.is_previous else 'حالي' }}
+                </span>
+                <button class="dashboard-action" data-edit-sponsor="{{ s.id }}"
+                        style="margin-top:6px">تعديل</button>
             </div>
             {% else %}
             <p class="empty">لا يوجد رعاة حالياً.</p>
@@ -1151,14 +1125,79 @@ document.addEventListener('DOMContentLoaded', function () {
         return res.json();
     }
 
-    function memberOptions(members, selectedId) {
-        return [
-            '<option value="">— اختر عضواً —</option>',
-            ...members.map(m => {
-                const sel = (selectedId && Number(selectedId) === m.id) ? ' selected' : '';
-                return `<option value="${m.id}"${sel}>${esc(m.name)} · ${esc(m.email)}</option>`;
-            }),
-        ].join('');
+    /* ---- Searchable leader picker (create + edit modals) ---- */
+    const PICKER_HTML = `
+        <label>قائد اللجنة (اختياري)</label>
+        <div class="cm-picker" data-leader-picker>
+            <div class="cm-picker-current" data-picker-current hidden></div>
+            <input type="search" class="cm-picker-search" data-picker-search
+                   placeholder="ابحث بالاسم أو البريد الإلكتروني…" autocomplete="off">
+            <div class="cm-picker-list" data-picker-list></div>
+        </div>`;
+
+    // Arabic-friendly matching: ignore case, diacritics, tatweel and the
+    // usual alef / yaa / taa-marbuta spelling variants.
+    const norm = (s) => String(s || '').toLowerCase()
+        .replace(/[\u064B-\u0652\u0640]/g, '')
+        .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+
+    // Wires the picker inside the open modal. `current` is the existing
+    // leader ({id, name}) or null; `committeeId` is null when creating.
+    // Returns a getter for the chosen user id (null = no leader).
+    function mountLeaderPicker(candidates, current, committeeId) {
+        const root = document.querySelector('#box [data-leader-picker]');
+        const currentBox = root.querySelector('[data-picker-current]');
+        const search = root.querySelector('[data-picker-search]');
+        const list = root.querySelector('[data-picker-list]');
+        const same = (a, b) => a != null && b != null && String(a) === String(b);
+        let selected = current
+            ? (candidates.find(u => same(u.id, current.id)) || {id: current.id, name: current.name, email: ''})
+            : null;
+
+        // Where the person sits today, and what choosing them will change.
+        const placement = (u) => {
+            if (u.leads_id && !same(u.leads_id, committeeId))
+                return {text: `قائد لجنة «${u.leads}» حالياً — سيُنقل إلى هذه اللجنة وتبقى تلك بدون قائد`, warn: true};
+            if (u.committee_id && !same(u.committee_id, committeeId))
+                return {text: `عضو في «${u.committee}» — سيُنقل إلى هذه اللجنة`, warn: true};
+            if (u.committee_id) return {text: 'عضو في هذه اللجنة', warn: false};
+            return {text: 'بدون لجنة', warn: false};
+        };
+
+        const renderCurrent = () => {
+            currentBox.hidden = !selected;
+            if (!selected) return;
+            currentBox.innerHTML = `<span>★ ${esc(selected.name)}<small>${esc(selected.email)}</small></span>
+                <button type="button" class="cm-mini-btn danger" data-picker-clear>إزالة القائد</button>`;
+        };
+        const renderList = () => {
+            const q = norm(search.value.trim());
+            const rows = candidates.filter(u => !(selected && same(u.id, selected.id)) &&
+                (!q || norm(u.name).includes(q) || norm(u.email).includes(q)));
+            list.innerHTML = rows.length
+                ? rows.slice(0, 50).map(u => {
+                    const p = placement(u);
+                    return `<button type="button" class="cm-picker-item" data-pick="${u.id}">${esc(u.name)}
+                        <small>${esc(u.email)}</small><small class="${p.warn ? 'warn' : ''}">${esc(p.text)}</small></button>`;
+                  }).join('') + (rows.length > 50 ? '<div class="cm-picker-empty">اكتب للبحث لعرض المزيد…</div>' : '')
+                : `<div class="cm-picker-empty">${q ? 'لا توجد نتائج مطابقة' : 'لا يوجد أعضاء مسجلون'}</div>`;
+        };
+
+        list.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-pick]');
+            if (!b) return;
+            selected = candidates.find(u => same(u.id, b.dataset.pick)) || null;
+            search.value = '';
+            renderCurrent(); renderList();
+        });
+        currentBox.addEventListener('click', (e) => {
+            if (!e.target.closest('[data-picker-clear]')) return;
+            selected = null;
+            renderCurrent(); renderList();
+        });
+        search.addEventListener('input', renderList);
+        renderCurrent(); renderList();
+        return () => (selected ? Number(selected.id) : null);
     }
 
     async function postJSON(url, body) {
@@ -1178,7 +1217,6 @@ document.addEventListener('DOMContentLoaded', function () {
         let roster;
         try { roster = await loadRoster(); }
         catch (_) { toast('تعذر تحميل الأعضاء'); return; }
-        const unassigned = roster.unassigned_members || [];
         modal(`
             <h3>إنشاء لجنة جديدة</h3>
             <div class="dashboard-form">
@@ -1186,10 +1224,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input id="cmNewName" type="text" maxlength="120" placeholder="مثال: لجنة البرمجة">
                 <label>وصف مختصر (اختياري)</label>
                 <textarea id="cmNewDesc" maxlength="400" rows="3" placeholder="نشاط اللجنة ومسؤولياتها"></textarea>
-                <label>قائد اللجنة (اختياري — يجب أن يكون عضواً مسجلاً)</label>
-                <select id="cmNewLeader">${memberOptions(unassigned, '')}</select>
+                ${PICKER_HTML}
                 <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
-                    القائمة أعلاه تعرض الأعضاء غير المعيّنين. يمكنك إضافة أعضاء وتعديل القيادة لاحقاً.
+                    يمكنك ترك اللجنة بدون قائد وتعيينه لاحقاً من «تعديل».
                 </p>
                 <div class="row" style="margin-top:14px">
                     <button class="btn btn-o" id="cmSaveNew">إنشاء اللجنة</button>
@@ -1197,13 +1234,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
             </div>
         `);
+        const getLeaderId = mountLeaderPicker(roster.leader_candidates || [], null, null);
         document.getElementById('cmSaveNew').onclick = async () => {
             const name = document.getElementById('cmNewName').value.trim();
             const description = document.getElementById('cmNewDesc').value.trim();
-            const leaderId = document.getElementById('cmNewLeader').value;
+            const leaderId = getLeaderId();
             if (!name) return toast('اسم اللجنة مطلوب');
             const body = {name, description};
-            if (leaderId) body.leader_user_id = Number(leaderId);
+            if (leaderId) body.leader_user_id = leaderId;
             const r = await postJSON('/leader/committees', body);
             if (!r.ok) return toast(r.data.error || 'فشل الإنشاء');
             closeModal();
@@ -1212,13 +1250,18 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     });
 
-    /* ---- EDIT committee (name + description) ---- */
-    document.addEventListener('click', (e) => {
+    /* ---- EDIT committee (name + description + leader) ---- */
+    document.addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-edit-committee]');
         if (!btn) return;
         const id = btn.dataset.editCommittee;
         const name = btn.dataset.committeeName || '';
         const desc = btn.dataset.committeeDesc || '';
+        const leaderId = btn.dataset.committeeLeaderId ? Number(btn.dataset.committeeLeaderId) : null;
+        const current = leaderId ? {id: leaderId, name: btn.dataset.committeeLeaderName || ''} : null;
+        let roster;
+        try { roster = await loadRoster(); }
+        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
         modal(`
             <h3>تعديل اللجنة</h3>
             <div class="dashboard-form">
@@ -1226,17 +1269,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input id="cmEditName" type="text" maxlength="120" value="${esc(name)}">
                 <label>الوصف</label>
                 <textarea id="cmEditDesc" maxlength="400" rows="3">${esc(desc)}</textarea>
+                ${PICKER_HTML}
+                <p style="font-size:12.5px;color:#6a7f91;margin:4px 0 0">
+                    عند تغيير القائد أو إزالته يبقى القائد السابق عضواً في اللجنة.
+                </p>
                 <div class="row" style="margin-top:14px">
                     <button class="btn btn-o" id="cmSaveEdit">حفظ</button>
                     <button class="btn btn-s" type="button" data-close>إلغاء</button>
                 </div>
             </div>
         `);
+        const getLeaderId = mountLeaderPicker(roster.leader_candidates || [], current, id);
         document.getElementById('cmSaveEdit').onclick = async () => {
             const newName = document.getElementById('cmEditName').value.trim();
             const newDesc = document.getElementById('cmEditDesc').value.trim();
             if (!newName) return toast('اسم اللجنة مطلوب');
-            const r = await postJSON(`/leader/committees/${id}/edit`, {name: newName, description: newDesc});
+            const body = {name: newName, description: newDesc};
+            // Only send the leader when it changed; 0 clears it.
+            const newLeaderId = getLeaderId();
+            if (newLeaderId !== leaderId) body.leader_user_id = newLeaderId || 0;
+            const r = await postJSON(`/leader/committees/${id}/edit`, body);
             if (!r.ok) return toast(r.data.error || 'فشل الحفظ');
             closeModal();
             toast('تم تحديث اللجنة');
@@ -1255,41 +1307,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!r.ok) return toast(r.data.error || 'فشل الحذف');
         toast(`تم حذف اللجنة · أُلغيت عضوية ${r.data.members_detached || 0} عضواً`);
         location.reload();
-    });
-
-    /* ---- ADD member ---- */
-    document.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-add-member]');
-        if (!btn) return;
-        const id = btn.dataset.addMember;
-        let roster;
-        try { roster = await loadRoster(); }
-        catch (_) { toast('تعذر تحميل الأعضاء'); return; }
-        const unassigned = roster.unassigned_members || [];
-        if (!unassigned.length) {
-            toast('لا يوجد أعضاء غير معيّنين حالياً — انقل عضواً من لجنة أخرى عبر زر «نقل».');
-            return;
-        }
-        modal(`
-            <h3>إضافة عضو للجنة</h3>
-            <div class="dashboard-form">
-                <label>اختر عضواً من غير المعيّنين</label>
-                <select id="cmAddUser">${memberOptions(unassigned, '')}</select>
-                <div class="row" style="margin-top:14px">
-                    <button class="btn btn-o" id="cmAddSave">إضافة</button>
-                    <button class="btn btn-s" type="button" data-close>إلغاء</button>
-                </div>
-            </div>
-        `);
-        document.getElementById('cmAddSave').onclick = async () => {
-            const uid = document.getElementById('cmAddUser').value;
-            if (!uid) return toast('اختر عضواً');
-            const r = await postJSON(`/leader/committees/${id}/add-member`, {user_id: Number(uid)});
-            if (!r.ok) return toast(r.data.error || 'فشل الإضافة');
-            closeModal();
-            toast('تم إضافة العضو');
-            location.reload();
-        };
     });
 
     /* ---- REMOVE member (keeps their account) ---- */
@@ -1338,7 +1355,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('cmMoveSave').onclick = async () => {
             const target = document.getElementById('cmMoveTarget').value;
             if (!target) return toast('اختر لجنة');
-            const r = await postJSON(`/leader/committees/${target}/add-member`, {user_id: Number(userId)});
+            const r = await postJSON(`/leader/committees/${target}/move-member`, {user_id: Number(userId)});
             if (!r.ok) return toast(r.data.error || 'فشل النقل');
             closeModal();
             toast('تم نقل العضو');
