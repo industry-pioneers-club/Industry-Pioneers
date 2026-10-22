@@ -173,12 +173,17 @@
                     <td>{{ m.email }}</td>
                     <td><span class="cl-points-pill" data-member-points>{{ m.points or 0 }}</span></td>
                     <td>
+                        {# Nobody can award points to themselves (enforced server-side too). #}
+                        {% if m.id != current_user.id %}
                         <button type="button" class="cl-award-btn"
                                 data-award-member="{{ m.id }}"
                                 data-member-name="{{ m.name }}"
                                 data-committee-id="{{ committee.id }}">
                             + إضافة نقاط
                         </button>
+                        {% else %}
+                        <span style="color:#9fb3c4">—</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}

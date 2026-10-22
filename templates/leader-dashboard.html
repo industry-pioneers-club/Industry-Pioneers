@@ -688,9 +688,13 @@
                             <td><b>{{ t.points }}</b></td>
                             <td>
                                 <div class="dashboard-actions">
+                                    {% if t.assigned_user_id != current_user.id %}
                                     <button class="dashboard-action approve" data-approve-task="{{ t.id }}">
                                         ✓ اعتماد
                                     </button>
+                                    {% else %}
+                                    <small style="color:#888">مهمتك — يعتمدها قائد أو مشرف آخر</small>
+                                    {% endif %}
                                     <button class="dashboard-action reject" data-reject-task="{{ t.id }}">
                                         ✗ رفض
                                     </button>
