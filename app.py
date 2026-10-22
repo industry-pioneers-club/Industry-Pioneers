@@ -2909,6 +2909,15 @@ def leader_review_membership(req_id, action):
     return _review_membership(req_id, action, as_committee_leader=False)
 
 
+def _self_award_refused(user_id):
+    """Nobody may award points to themselves, whatever their role. Every
+    route where the caller picks the recipient checks this; returns a 403
+    response when `user_id` is the caller, else None."""
+    if current_user.is_authenticated and user_id == current_user.id:
+        return jsonify({"error": "لا يمكنك منح النقاط لنفسك"}), 403
+    return None
+
+
 def _award_points(user_id, action, points, **ref_ids):
     """Atomically record a points grant in ActivityLog and bump User.points.
 
@@ -3024,6 +3033,9 @@ def mark_event_attendance(event_id, user_id):
     user = db.session.get(User, user_id)
     if user is None:
         abort(404)
+    refused = _self_award_refused(user.id)
+    if refused:
+        return refused
     awarded, user, new_total = _award_points(
         user_id, "event_attended", EVENT_ATTENDANCE_POINTS, event_id=event_id
     )
@@ -3058,6 +3070,9 @@ def credit_event_organizer(event_id, user_id):
     user = db.session.get(User, user_id)
     if user is None:
         abort(404)
+    refused = _self_award_refused(user.id)
+    if refused:
+        return refused
     awarded, user, new_total = _award_points(
         user_id, "event_organized", EVENT_ORGANIZER_POINTS, event_id=event_id
     )
@@ -3663,9 +3678,9 @@ def committee_leader_add_member(committee_id):
 @app.post("/committee-leader/<int:committee_id>/award-points")
 @login_required
 def committee_leader_award_points(committee_id):
-    """Manual points award to a member of THIS committee only.
-    Validation + authorization both happen here; the frontend's hidden
-    fields are untrusted."""
+    """Manual points award to a member of THIS committee only — never to
+    the caller themselves. Validation + authorization both happen here;
+    the frontend's hidden fields are untrusted."""
     c, err = _get_managed_committee(committee_id)
     if err is not None:
         return err
@@ -3687,6 +3702,9 @@ def committee_leader_award_points(committee_id):
     user = db.session.get(User, user_id) if user_id else None
     if user is None:
         return jsonify({"error": "العضو غير موجود"}), 404
+    refused = _self_award_refused(user.id)
+    if refused:
+        return refused
     # Hard check: user must be in THIS committee (prevents URL/payload tampering).
     if user.committee_id != c.id:
         return jsonify({"error": "العضو ليس عضواً في هذه اللجنة"}), 403
@@ -3724,6 +3742,10 @@ def approve_task(task_id):
         return jsonify({"error": "لا يمكن اعتماد مهمة غير مُسندة لعضو"}), 400
     if task.approval_status == "approved":
         return jsonify({"error": "المهمة معتمدة مسبقاً"}), 409
+    # Approving grants the task's points, so nobody may approve their own.
+    refused = _self_award_refused(task.assigned_user_id)
+    if refused:
+        return refused
     task.approval_status = "approved"
     task.approved_by = current_user.id
     task.approved_at = datetime.now()
@@ -3733,6 +3755,7 @@ def approve_task(task_id):
         event_id=task.event_id,
         action="task_approved",
         points_delta=task.points,
+        awarded_by_user_id=current_user.id,
     )
     db.session.add(log)
     try:
@@ -3769,6 +3792,7 @@ def reject_task(task_id):
             event_id=task.event_id,
             action="task_rejected",
             points_delta=0,
+            awarded_by_user_id=current_user.id,
         )
         db.session.add(log)
     db.session.commit()
